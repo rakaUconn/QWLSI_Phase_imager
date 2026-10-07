@@ -47,13 +47,12 @@ Known physics (must be shown in the UI help):
 **With reference**: "Capture reference" (live, average N frames) or load a reference TIFF / saved reference. Divide the sample lobes by the reference lobes (A/A_ref, B/B_ref), then the same shear-model solve → sample-only OPD; carriers are detected from the reference. Intensity from DC lobe as above.
 **Without reference**: use calibration.json; optional "system wavefront file" (`ref_OPD_m.npy`-like, or one made from a flat frame) to subtract; otherwise show a visible note that static system wavefront is included.
 **Offline**: open file or folder, process one/batch with progress + cancel, export, summary table (power, astigmatism, rms, PV) as CSV.
-**Live (high accuracy)**: same solver and full 1504² grid as offline. To keep it usable:
-- grab loop keeps ONLY the newest frame (drop old ones), process on a worker thread, render at ≤30 fps;
-- warm-start CG from the previous frame's W (few iterations when the scene changes little); show per-frame state "refining"/"converged" + residual;
-- progressive display: show a fast first estimate, then replace with the converged result;
-- optional average of N frames' lobes before solving; "Freeze & refine" runs to full convergence and is what gets saved;
+**Live (transmittance only)**: the live view computes and displays ONLY the transmittance map, from the DC (zero-order) lobe. Pipeline per frame: one full-frame r2c FFT → DC window → small 1504² inverse FFT → black-level removal → normalisation. It needs no carriers and no calibration.
+- With a reference: show T = I / I_ref (I_ref = DC-lobe intensity of the reference frame, same pipeline). Without one: show the normalised intensity and label it "relative".
+- grab loop keeps ONLY the newest frame (drop old ones), process on a worker thread, render at ≤30 fps. Measure the live rate in frames/s (Phase 0 result below) and show it in the status bar.
+- **"Capture and reconstruct" button**: grabs the current frame (optionally the average of N frames) and runs the full-accuracy solve (60 CG iterations × 3 passes, same as offline, golden-validated) on a background thread, with a progress bar and cancel. The result goes to the OPD viewer and to the exports (§6). Live view keeps running meanwhile.
+- **Live OPD** is an optional toggle, OFF by default. Warm-start, adaptive stopping and progressive display are NOT required; implement them only if this toggle needs them (Phase 0 data: 10 CG iterations/pass ≈ 1.2 s/frame, ≈2.3 nm from the full solve; warm start only helps when every pass starts from the current W).
 - optional low-resolution preview switch for alignment (OFF by default).
-Expect roughly 0.5–1.5 s/frame on a multi-core CPU (an ESTIMATE — measure it in Phase 0 and report real numbers).
 
 ## 6. Offline export (OPD and other maps)
 - **Matrix .txt / .csv**: 1504 rows × 1504 columns, one image row per line (loadable with MATLAB `readmatrix`/`load`, numpy `loadtxt`). Options: delimiter (tab/space/comma), decimals, units (nm, µm, m, waves), outside-pupil as NaN or 0, optional header as `#` comment lines (λ, pitch, calibration used, mode, date) — header OFF by default for a pure matrix. Stream-write; ~20–25 MB per frame.
@@ -82,7 +81,7 @@ Solution `QwlsiApp.sln`:
 ## 9. Phases (finish each and report before the next)
 0. **Spike**: FFT benchmark (4512² r2c and 1504² c2c, FFTW vs MKL) on this PC; port `Qwlsi.Core`; run on all six lens frames and ref with `calibration.json`; compare with golden results (§10); measure seconds/frame cold and warm-started; XIMEA probe grabs one 16-bit frame. REPORT real timings.
 1. **Offline app**: UI, load/batch, with/without ref, calibration browse/auto-find/make/save, all exports.
-2. **Live mode**: XIMEA source, high-accuracy pipeline, progressive display, freeze & refine, reference capture, live calibration.
+2. **Live mode**: XIMEA source, live transmittance view, "Capture and reconstruct" (full 60×3 solve, background, cancel), optional live-OPD toggle, reference capture, live calibration.
 3. **Packaging**: self-contained publish, installer, driver check, test on a clean machine/VM, short user guide.
 4. Optional: GPU FFT if Phase 0/2 timings show the CPU rate is too low.
 

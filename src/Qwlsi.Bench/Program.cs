@@ -12,6 +12,7 @@ static class Program
         else if (cmd == "golden") Golden(args.Skip(1).ToArray());
         else if (cmd == "fftcheck") FftCheck();
         else if (cmd == "warm") Warm();
+        else if (cmd == "live") Live();
         else Console.WriteLine("commands: fft | fftcheck | golden [names...]");
     }
 
@@ -84,6 +85,36 @@ static class Program
         foreach (int it in new[] { 30, 20, 10 }) Run($"warm(c1->c2) iters={it} allpasses", f2, g2, new SolveOptions { Iters = it, WarmW = Wsame, WarmAllPasses = true });
         Console.WriteLine("--- warm + rtol early exit (1e-4 / 1e-3), same frame");
         foreach (double rt in new[] { 1e-4, 1e-3 }) Run($"warm(same) iters=60 rtol={rt}", f1, g1, new SolveOptions { Iters = 60, Rtol = rt, WarmW = Wsame, WarmAllPasses = true });
+    }
+
+    static void Live()
+    {
+        var par = new QwlsiParams(); int M = par.M; long n = (long)M * M;
+        using var tp = new TransmittanceProcessor(par);
+        float[] Load(string nm) => TiffIO.ReadFrame(Path.Combine(Root, nm + ".tif"), out _, out _);
+        var f = Load("concave_1_img"); var fr = Load("ref");
+        var I = new float[n]; var Iref = new float[n]; var T = new float[n]; var scratch = new float[n];
+        tp.Normalised(f, I);
+        // accuracy: scale to the golden |U|^2 inside its mask (golden normalises by the masked p95; ours by the frame p95)
+        var gf = Npy.ReadFloat32(Path.Combine(Root, @"recon_single_frame\results\concave_1_img_field.npy"), out _, out _);
+        double sxy = 0, sxx = 0; for (long i = 0; i < n; i++) { double g = gf[2 * i] * (double)gf[2 * i] + gf[2 * i + 1] * (double)gf[2 * i + 1]; if (g == 0) continue; sxy += I[i] * g; sxx += (double)I[i] * I[i]; }
+        double k = sxy / sxx, num = 0, den = 0; for (long i = 0; i < n; i++) { double g = gf[2 * i] * (double)gf[2 * i] + gf[2 * i + 1] * (double)gf[2 * i + 1]; if (g == 0) continue; num += (k * I[i] - g) * (k * I[i] - g); den += g * g; }
+        Console.WriteLine($"transmittance (no ref) vs golden intensity inside mask, after one global scale: relL2 {Math.Sqrt(num / den) * 100:F4}%");
+        tp.DcIntensity(fr, Iref); TransmittanceProcessor.Ratio(tp.DcIntensity(f), Iref, T, M, scratch);
+        double ts = 0; long tc = 0; for (long i = 0; i < n; i++) if (T[i] > 0) { ts += T[i]; tc++; }
+        Console.WriteLine($"T = I/Iref (concave_1 / ref): mean over valid px {ts / tc:F3}");
+        foreach (var mode in new[] { "normalised intensity (no ref)", "T = I/Iref (ref cached)" })
+        {
+            for (int w = 0; w < 5; w++) { tp.Normalised(f, I); }
+            const int reps = 40; var sw = Stopwatch.StartNew();
+            for (int r = 0; r < reps; r++)
+            {
+                if (mode.StartsWith("norm")) tp.Normalised(f, I);
+                else { tp.DcIntensity(f, I); TransmittanceProcessor.Ratio(I, Iref, T, M, scratch); }
+            }
+            double ms = sw.Elapsed.TotalMilliseconds / reps;
+            Console.WriteLine($"{mode,-32} {ms,6:F1} ms/frame = {1000 / ms,5:F1} fps  (in-memory frame; excludes camera readout and display)");
+        }
     }
 
     static void Golden(string[] names)
