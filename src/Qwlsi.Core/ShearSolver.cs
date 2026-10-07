@@ -9,6 +9,10 @@ public sealed class SolveOptions
     public float[]? WarmW { get; set; }
     /// <summary>Also warm-start the re-wrap passes from the current W instead of the preconditioned guess (NOT in the reference).</summary>
     public bool WarmAllPasses { get; set; }
+    /// <summary>Cancels the solve (OperationCanceledException), checked every CG iteration.</summary>
+    public CancellationToken Cancel { get; set; }
+    /// <summary>Progress 0..1 over passes x iterations (called from the solver thread).</summary>
+    public Action<double>? Progress { get; set; }
 }
 
 public sealed record SolveInfo(int[] CgIterations, double[] ResidualRad, double[] DataRmsRad, double[] FinalRelResidual);
@@ -151,7 +155,7 @@ public sealed class ShearSolver : IDisposable
         return s;
     }
 
-    void Cg(float[] bvec_, float[] x0, int maxIter, double rtol, out int iters, out double relRes)
+    void Cg(float[] bvec_, float[] x0, int maxIter, double rtol, SolveOptions o, int pass, int passes, out int iters, out double relRes)
     {
         Array.Copy(x0, x, n);
         Aop(x, q);   // q = A x0
@@ -159,6 +163,8 @@ public sealed class ShearSolver : IDisposable
         double bnorm = Math.Sqrt(Dot(bvec_, bvec_)), atol = rtol * bnorm, rho = 0, rhoPrev = 0; iters = 0;
         for (int it = 0; it < maxIter; it++)
         {
+            o.Cancel.ThrowIfCancellationRequested();
+            o.Progress?.Invoke((pass + (double)it / maxIter) / passes);
             if (Math.Sqrt(Dot(r, r)) < atol) break;
             Pop(r, z); rho = Dot(r, z);
             if (it > 0) { float beta = (float)(rho / rhoPrev); Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) p[o + xx] = p[o + xx] * beta + z[o + xx]; }); }
@@ -188,7 +194,7 @@ public sealed class ShearSolver : IDisposable
             if (pass == 0 && o.WarmW != null) Array.Copy(o.WarmW, x0, n);
             else if (pass > 0 && o.WarmAllPasses) Array.Copy(W, x0, n);
             else Pop(bvec, x0);
-            Cg(bvec, x0, o.Iters, o.Rtol, out iterL[pass], out relL[pass]);
+            Cg(bvec, x0, o.Iters, o.Rtol, o, pass, passes, out iterL[pass], out relL[pass]);
             Array.Copy(x, W, n);
             D2(W);
             Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) { long i = off + xx; pred0[i] = c * bufA[2 * i]; pred1[i] = c * bufA[2 * i + 1]; } });

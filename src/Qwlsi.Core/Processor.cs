@@ -16,7 +16,7 @@ public sealed class ReconResult
 }
 
 /// <summary>Port of reconstruct() from qwlsi_single_frame.py. Owns FFT plans and all large buffers (reuse across frames).</summary>
-public sealed class Processor : IDisposable
+public sealed partial class Processor : IDisposable
 {
     readonly QwlsiParams par; readonly int N, M, Dec; readonly long nM;
     readonly RealFft2D bigFft; readonly ComplexFft2D smallFft;
@@ -74,18 +74,29 @@ public sealed class Processor : IDisposable
         return dest;
     }
 
-    public ReconResult Process(float[] frame, Calibration calib, SolveOptions? opt = null)
+    /// <summary>mean of the frame, work = frame - mean, spectrum = r2c FFT of work. Returns the mean.</summary>
+    float ComputeSpectrum(float[] frame)
     {
-        opt ??= new SolveOptions(); var res = new ReconResult(); var sw = Stopwatch.StartNew();
-        void Lap(string k) { res.TimingsMs[k] = sw.Elapsed.TotalMilliseconds; sw.Restart(); }
-        var fa = calib.Fa; var fb = calib.Fb;
-
-        // mean + FFT of (img - mu)
         double s = 0; object lk = new();
         Parallel.For(0, N, () => 0.0, (y, st, acc) => { long o = (long)y * N; for (int x = 0; x < N; x++) acc += frame[o + x]; return acc; }, acc => { lock (lk) s += acc; });
         float mu = (float)(s / ((double)N * N));
         Parallel.For(0, N, y => { long o = (long)y * N; for (int x = 0; x < N; x++) work[o + x] = frame[o + x] - mu; });
-        bigFft.Forward(work, spectrum); Lap("fft_full_r2c");
+        bigFft.Forward(work, spectrum); return mu;
+    }
+
+    /// <summary>
+    /// Reconstruct one frame. Without `reference`: carriers from `calib` (static system wavefront is included in the OPD).
+    /// With `reference`: carriers come from the reference, sample lobes are divided by the reference lobes (A/A_ref -> the
+    /// phase of A*conj(A_ref)), giving the sample-only OPD; `calib` is ignored.
+    /// </summary>
+    public ReconResult Process(float[] frame, Calibration? calib, SolveOptions? opt = null, ReferenceData? reference = null)
+    {
+        opt ??= new SolveOptions(); var res = new ReconResult(); var sw = Stopwatch.StartNew();
+        void Lap(string k) { res.TimingsMs[k] = sw.Elapsed.TotalMilliseconds; sw.Restart(); }
+        var cal = reference?.Carriers ?? calib ?? throw new ArgumentException("calibration or reference required");
+        var fa = cal.Fa; var fb = cal.Fb;
+
+        float mu = ComputeSpectrum(frame); Lap("fft_full_r2c");
 
         var A1 = new float[2 * nM]; var A2 = new float[2 * nM];
         Baseband(fa, A1); Baseband(fb, A2);
@@ -94,6 +105,7 @@ public sealed class Processor : IDisposable
         Lap("demod_lobes");
 
         var mask = ImageOps.MakeMask(A1, A2, M); res.Mask = mask; Lap("mask");
+        if (reference != null) { MulConj(A1, reference.A1); MulConj(A2, reference.A2); Lap("ref_divide"); }
 
         if (solver == null || !solver.FaKey!.SequenceEqual(fa) || !solver.FbKey!.SequenceEqual(fb)) { solver?.Dispose(); solver = new ShearSolver(par, fa, fb); Lap("solver_setup"); }
         var W = solver.Solve(A1, A2, mask, opt, out var info); res.Solve = info; res.RawW = W; Lap("solve");
@@ -122,6 +134,12 @@ public sealed class Processor : IDisposable
 
         res.Stats = Zernike.Report(wz, mask, M, par.PitchM); Lap("zernike");
         return res;
+    }
+
+    /// <summary>a *= conj(b) (phase of A/A_ref; amplitude weighting is irrelevant to the solver).</summary>
+    void MulConj(float[] a, float[] b)
+    {
+        Parallel.For(0, M, y => { long o = 2L * y * M; for (int i = 0; i < 2 * M; i += 2) { float ar = a[o + i], ai = a[o + i + 1], br = b[o + i], bi = -b[o + i + 1]; a[o + i] = ar * br - ai * bi; a[o + i + 1] = ar * bi + ai * br; } });
     }
 
     public void Dispose() { bigFft.Dispose(); smallFft.Dispose(); solver?.Dispose(); }

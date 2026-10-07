@@ -18,7 +18,7 @@ Parent folder `..\` = `H:\caliberation\Phase_imager_cal\New\`
 - Vendor/reference-based outputs: `..\output\`.
 - Python reference: `..\recon_single_frame\qwlsi_single_frame.py`; MATLAB port `.m`; `calibration.json`; `README.md`.
 - GOLDEN results to test against: `..\recon_single_frame\results\*_OPD_m.npy` (float, metres), `*_field.npy` (complex), `ref_OPD_m.npy` (static system wavefront).
-- XIMEA SDK: `C:\XIMEA\Examples` — .NET wrapper `Bin\net7.0\xiApi.NET.dll` (also net5.0/net6.0/netcoreapp*), native `Bin\xiapi64.dll`, C# sample `Sources\xiAPI.NET.7.cs\Capture-images\Program.cs`, C header `Include\xiApi.h`, xml docs `Bin\net7.0\xiApi.NET.xml`.
+- XIMEA SDK: `C:\XIMEA\Examples` — .NET wrapper for 64-bit: `Bin\net7.0\xiApi.NETX64.dll` (the plain `xiApi.NET.dll` is the 32-bit wrapper and fails to load in an x64 process; also net5.0/net6.0/netcoreapp*; the namespace is still `xiApi.NET`), native `Bin\xiapi64.dll`, C# sample `Sources\xiAPI.NET.7.cs\Capture-images\Program.cs`, C header `Include\xiApi.h`, xml docs `Bin\net7.0\xiApi.NET.xml`.
 - Python is available on this PC for regenerating golden data: `python ..\recon_single_frame\qwlsi_single_frame.py frame.tif --calib ..\recon_single_frame\calibration.json --out <dir>`.
 
 ## 3. System parameters (defaults; must be editable in the UI and saved in settings.json)
@@ -61,12 +61,12 @@ Known physics (must be shown in the UI help):
 - Same options for intensity, mask, and complex field (real+imag or amplitude+phase as two matrices). Always write a sidecar JSON with all parameters used.
 
 ## 7. XIMEA camera (live source)
-Use `xiApi.NET` (reference `Bin\net7.0\xiApi.NET.dll`; verify it loads under net8.0-windows; fall back to targeting net7/net6 if it does not). API pattern from the SDK sample: `new xiCam()`, `GetNumberDevices`, `OpenDevice(i)`, `GetParam(PRM.DEVICE_NAME / DEVICE_SN, out string)`, `SetParam(PRM.EXPOSURE, µs)`, `SetParam(PRM.GAIN, dB)`, `SetParam(PRM.IMAGE_DATA_FORMAT, IMG_FORMAT.…)`, `SetParam(PRM.BUFFER_POLICY, BUFF_POLICY.SAFE)`, `GetParamInt(PRM.WIDTH/HEIGHT)`, start acquisition, `GetImage(...)`.
+Use the `xiApi.NET` namespace from `Bin\net7.0\xiApi.NETX64.dll` (Phase 0: verified it loads under net8.0; the native `xiapi64.dll` is found in `C:\XIMEA\API\xiAPI` or next to the exe — pre-load it with NativeLibrary.TryLoad). API pattern from the SDK sample: `new xiCam()`, `GetNumberDevices`, `OpenDevice(i)`, `GetParam(PRM.DEVICE_NAME / DEVICE_SN, out string)`, `SetParam(PRM.EXPOSURE, µs)`, `SetParam(PRM.GAIN, dB)`, `SetParam(PRM.IMAGE_DATA_FORMAT, IMG_FORMAT.…)`, `SetParam(PRM.BUFFER_POLICY, BUFF_POLICY.SAFE)`, `GetParamInt(PRM.WIDTH/HEIGHT)`, start acquisition, `GetImage(...)`.
 - Capture 16-bit (`RAW16` or `MONO16`) at full sensor bit depth, NOT the 8-bit used in the sample. Warn if the image format is 8-bit or the frame size ≠ calibration size.
 - UI: camera picker (model + serial), exposure µs, gain, saturation warning + histogram, start/stop, snapshot, reference capture with averaging.
 - Implement behind `ICameraSource` with adapters: `XimeaCameraSource`, `FolderWatcherSource`, `TiffStackSource`, `SimulatorSource` (replays the lens frames) so everything is testable without a camera.
 - Ship `xiapi64.dll` next to the exe; the XIMEA API software package (driver) must be installed on the target PC — installer should check and tell the user if missing. If xiApi is unavailable the app must still start in offline/simulator mode.
-- First: write a tiny console probe that opens the camera, prints model/serial/sensor size/bit depth, grabs one frame at 16-bit and saves it as TIFF. Ask the user for the camera model if `DEVICE_NAME` cannot be read.
+- Probe (`src/Qwlsi.XimeaProbe`): the Phase 0 version only checks that the wrapper loads and `GetNumberDevices` returns (prints "No devices found" when none; verified — no camera on the dev PC). Live mode is developed and tested with `SimulatorSource` (lens frames + ref.tif replayed at 10 fps). See §13 for the pending hardware items.
 
 ## 8. Architecture
 Solution `QwlsiApp.sln`:
@@ -103,3 +103,7 @@ Solution `QwlsiApp.sln`:
 
 ## 12. Ask the user before assuming
 Camera model/serial and bit depth; whether other wavelengths will be used; preferred default units for text export; whether an installer needs code signing; whether Mac/Linux is ever needed (current plan: Windows x64 only).
+
+## 13. Pending items (need hardware)
+- **Camera frame-rate measurement**: live transmittance fps with a real XIMEA camera, including readout and display (Phase 0 in-memory figure: 14-17 fps). Not measured: no camera is connected to the dev PC.
+- **Camera probe extension**: open the device, print model/serial/sensor size/bit depth, grab one 16-bit frame, save it as TIFF; ask the user for the camera model if DEVICE_NAME cannot be read.
