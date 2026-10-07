@@ -60,10 +60,10 @@ public class GoldenTests
     public void Complex_field_matches_python(string name)
     {
         // relative L2 of (U - U_python) over sum |U_python|^2 ; measured 0.001-0.009 % on all frames
-        var r = fx.Recon(name); var g = fx.GoldenField(name); long n = (long)fx.Par.M * fx.Par.M; double num = 0, den = 0;
+        var r = fx.Recon(name); var g = fx.GoldenField(name); var fld = r.BuildField(fx.Par.Lambda); long n = (long)fx.Par.M * fx.Par.M; double num = 0, den = 0;
         for (long i = 0; i < n; i++)
         {
-            double dr = r.Field[2 * i] - g[2 * i], di = r.Field[2 * i + 1] - g[2 * i + 1]; num += dr * dr + di * di;
+            double dr = fld[2 * i] - g[2 * i], di = fld[2 * i + 1] - g[2 * i + 1]; num += dr * dr + di * di;
             den += g[2 * i] * (double)g[2 * i] + g[2 * i + 1] * (double)g[2 * i + 1];
         }
         double rel = Math.Sqrt(num / den);

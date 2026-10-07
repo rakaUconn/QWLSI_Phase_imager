@@ -9,6 +9,8 @@ public sealed class SolveOptions
     public float[]? WarmW { get; set; }
     /// <summary>Also warm-start the re-wrap passes from the current W instead of the preconditioned guess (NOT in the reference).</summary>
     public bool WarmAllPasses { get; set; }
+    /// <summary>Keep the raw solver output (ReconResult.RawW) for warm-starting a following frame. Off by default (saves memory).</summary>
+    public bool KeepRawW { get; set; }
     /// <summary>Cancels the solve (OperationCanceledException), checked every CG iteration.</summary>
     public CancellationToken Cancel { get; set; }
     /// <summary>Progress 0..1 over passes x iterations (called from the solver thread).</summary>
@@ -21,28 +23,31 @@ public sealed record SolveInfo(int[] CgIterations, double[] ResidualRad, double[
 /// Masked least-squares inversion of the two shear phases (solve_opd of the reference). The operators are the exact
 /// Fourier shear operators H_j = 2i sin(pi k.s_j). Two real FFT pairs are packed into one complex FFT using
 /// conjugate symmetry — an exact algebraic identity, so results equal the reference up to float rounding.
-/// All buffers are preallocated; one instance is not thread-safe.
+/// Memory-lean: the filters are derived on the fly from y_j = 2 sin(pi k.s_j) (two float arrays), scratch arrays are aliased.
+/// One instance is not thread-safe.
 /// </summary>
 public sealed class ShearSolver : IDisposable
 {
     readonly int M; readonly long n; readonly double lam; readonly int dec;
     readonly ComplexFft2D cfft; readonly RealFft2D rfft;
-    readonly float[] G, Ha, Hb;         // complex interleaved filters (scale 1/M^2 folded in)
+    readonly float[] Y0, Y1;            // y_j = 2 sin(pi k.s_j) (H_j = i*y_j)
     readonly float[] Pk;                // real, half spectrum M x (M/2+1), 1/M^2 folded in
+    readonly float invS;
     readonly float[] bufA, bufB;        // complex scratch
     readonly float[] spec;              // half-spectrum scratch for the preconditioner
-    readonly float[] x, r, z, p, q, bvec, V;
-    readonly float[] ph0, ph1, Ap0, Ap1, pred0, pred1;   // phases / pistonless lobes
+    readonly float[] x, r, z, p, q, bvec;
+    readonly float[] ph0, ph1;          // wrapped / re-wrapped phases
+    byte[] mk = Array.Empty<byte>();
     public double[]? FaKey, FbKey;
 
-    public ShearSolver(QwlsiParams par, double[] fa, double[] fb, ComplexFft2D? sharedC = null, RealFft2D? sharedR = null)
+    public ShearSolver(QwlsiParams par, double[] fa, double[] fb)
     {
-        M = par.M; n = (long)M * M; dec = par.Dec; lam = par.Lambda;
-        cfft = sharedC ?? new ComplexFft2D(M); rfft = sharedR ?? new RealFft2D(M);
-        G = new float[2 * n]; Ha = new float[2 * n]; Hb = new float[2 * n]; Pk = new float[(long)M * (M / 2 + 1)];
+        M = par.M; n = (long)M * M; dec = par.Dec; lam = par.Lambda; invS = 1f / ((float)M * M);
+        cfft = new ComplexFft2D(M); rfft = new RealFft2D(M);
+        Y0 = new float[n]; Y1 = new float[n]; Pk = new float[(long)M * (M / 2 + 1)];
         bufA = new float[2 * n]; bufB = new float[2 * n]; spec = new float[2L * M * (M / 2 + 1)];
-        x = new float[n]; r = new float[n]; z = new float[n]; p = new float[n]; q = new float[n]; bvec = new float[n]; V = new float[n];
-        ph0 = new float[n]; ph1 = new float[n]; Ap0 = new float[2 * n]; Ap1 = new float[2 * n]; pred0 = new float[n]; pred1 = new float[n];
+        x = new float[n]; r = new float[n]; z = new float[n]; p = new float[n]; q = new float[n]; bvec = new float[n];
+        ph0 = new float[n]; ph1 = new float[n];
         BuildFilters(par, fa, fb);
     }
 
@@ -52,33 +57,18 @@ public sealed class ShearSolver : IDisposable
     {
         FaKey = (double[])fa.Clone(); FbKey = (double[])fb.Clone();
         var sa = Shear(par, fa); var sb = Shear(par, fb);
-        // H_j = i*y_j with y_j = 2 sin(pi (kx sx + ky sy)), kx,ky = fftfreq(M, d=DEC) (numpy order)
-        var f1 = new double[M]; for (int i = 0; i < M; i++) f1[i] = (i < M / 2 ? i : i - M) / (double)(M * dec);
-        var y0 = new float[n]; var y1 = new float[n];
+        var f1 = new double[M]; for (int i = 0; i < M; i++) f1[i] = (i < M / 2 ? i : i - M) / (double)(M * dec);   // numpy fftfreq(M, d=DEC)
         Parallel.For(0, M, iy =>
         {
             for (int ix = 0; ix < M; ix++)
             {
                 long i = (long)iy * M + ix; double kx = f1[ix], ky = f1[iy];
-                y0[i] = (float)(2 * Math.Sin(Math.PI * (kx * sa[0] + ky * sa[1])));
-                y1[i] = (float)(2 * Math.Sin(Math.PI * (kx * sb[0] + ky * sb[1])));
+                Y0[i] = (float)(2 * Math.Sin(Math.PI * (kx * sa[0] + ky * sa[1])));
+                Y1[i] = (float)(2 * Math.Sin(Math.PI * (kx * sb[0] + ky * sb[1])));
             }
         });
-        float invS = 1f / ((float)M * M);
-        float smax = 0; var S = new float[n];
-        for (long i = 0; i < n; i++) { S[i] = y0[i] * y0[i] + y1[i] * y1[i]; if (S[i] > smax) smax = S[i]; }
-        Parallel.For(0, M, iy =>
-        {
-            int my = (M - iy) % M;
-            for (int ix = 0; ix < M; ix++)
-            {
-                int mx = (M - ix) % M; long i = (long)iy * M + ix, m = (long)my * M + mx;
-                float yh0 = 0.5f * (y0[i] - y0[m]), yh1 = 0.5f * (y1[i] - y1[m]);   // Hermitian-projected: i*(y(k)-y(-k))/2
-                G[2 * i] = -invS * yh1; G[2 * i + 1] = invS * yh0;                      // G = Hh0 + i Hh1
-                Ha[2 * i] = invS * 0.5f * y1[i]; Ha[2 * i + 1] = invS * 0.5f * y0[i];   // (H0 - iH1)/2
-                Hb[2 * i] = -invS * 0.5f * y1[i]; Hb[2 * i + 1] = invS * 0.5f * y0[i];  // (H0 + iH1)/2
-            }
-        });
+        float smax = 0;
+        for (long i = 0; i < n; i++) { float s = Y0[i] * Y0[i] + Y1[i] * Y1[i]; if (s > smax) smax = s; }
         int C = M / 2 + 1;
         Parallel.For(0, M, iy =>
         {
@@ -86,7 +76,8 @@ public sealed class ShearSolver : IDisposable
             for (int ix = 0; ix < C; ix++)
             {
                 int mx = (M - ix) % M; long i = (long)iy * M + ix, m = (long)my * M + mx;
-                float pi_ = 1f / (S[i] + smax * 1e-6f + 1e-12f), pm = 1f / (S[m] + smax * 1e-6f + 1e-12f);
+                float Si = Y0[i] * Y0[i] + Y1[i] * Y1[i], Sm = Y0[m] * Y0[m] + Y1[m] * Y1[m];
+                float pi_ = 1f / (Si + smax * 1e-6f + 1e-12f), pm = 1f / (Sm + smax * 1e-6f + 1e-12f);
                 if (i == 0) pi_ = 0; if (m == 0) pm = 0;
                 Pk[(long)iy * C + ix] = 0.5f * (pi_ + pm) * invS;
             }
@@ -96,18 +87,21 @@ public sealed class ShearSolver : IDisposable
     public void Rebuild(QwlsiParams par, double[] fa, double[] fb) => BuildFilters(par, fa, fb);
 
     // ---- operators ---------------------------------------------------------------------------------------------
-    /// <summary>D0 + i D1 = Inv(G * Fwd(w))  -> in bufA (complex).</summary>
+    /// <summary>D0 + i D1 = Inv(G * Fwd(w))  -> in bufA (complex), G = Hh0 + i Hh1 (Hermitian-projected, scale 1/M^2 folded in).</summary>
     void D2(float[] w)
     {
         Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) { bufA[2 * (o + xx)] = w[o + xx]; bufA[2 * (o + xx) + 1] = 0; } });
         cfft.Forward(bufA);
         Parallel.For(0, M, y =>
         {
-            long o = (long)y * M;
+            int my = (M - y) % M; long o = (long)y * M, om = (long)my * M;
             for (int xx = 0; xx < M; xx++)
             {
-                long i = 2 * (o + xx); float re = bufA[i], im = bufA[i + 1], gr = G[i], gi = G[i + 1];
-                bufA[i] = re * gr - im * gi; bufA[i + 1] = re * gi + im * gr;
+                int mx = (M - xx) % M; long i = o + xx, m = om + mx;
+                float yh0 = 0.5f * (Y0[i] - Y0[m]), yh1 = 0.5f * (Y1[i] - Y1[m]);   // Hh_j = i*(y_j(k) - y_j(-k))/2
+                float gr = -invS * yh1, gi = invS * yh0;                              // G = Hh0 + i Hh1
+                long k = 2 * i; float re = bufA[k], im = bufA[k + 1];
+                bufA[k] = re * gr - im * gi; bufA[k + 1] = re * gi + im * gr;
             }
         });
         cfft.Backward(bufA);
@@ -122,11 +116,13 @@ public sealed class ShearSolver : IDisposable
             int my = (M - y) % M; long o = (long)y * M, om = (long)my * M;
             for (int xx = 0; xx < M; xx++)
             {
-                int mx = (M - xx) % M; long i = 2 * (o + xx), m = 2 * (om + mx);
-                float tr = bufA[i], ti = bufA[i + 1], cr = bufA[m], ci = -bufA[m + 1];   // conj(Tr(-k))
-                float ar = Ha[i], ai = Ha[i + 1], br = Hb[i], bi = Hb[i + 1];
-                bufB[i] = tr * ar - ti * ai + cr * br - ci * bi;
-                bufB[i + 1] = tr * ai + ti * ar + cr * bi + ci * br;
+                int mx = (M - xx) % M; long i = o + xx, m = 2 * (om + mx), k = 2 * i;
+                float tr = bufA[k], ti = bufA[k + 1], cr = bufA[m], ci = -bufA[m + 1];   // conj(Tr(-k))
+                float h0 = 0.5f * invS * Y0[i], h1 = 0.5f * invS * Y1[i];
+                // Ha = (H0 - iH1)/2 = (y1 + i y0)/2 ; Hb = (H0 + iH1)/2 = (-y1 + i y0)/2   (scale folded in)
+                float ar = h1, ai = h0, br = -h1, bi = h0;
+                bufB[k] = tr * ar - ti * ai + cr * br - ci * bi;
+                bufB[k + 1] = tr * ai + ti * ar + cr * bi + ci * br;
             }
         });
         cfft.Backward(bufB);
@@ -136,7 +132,8 @@ public sealed class ShearSolver : IDisposable
     void Aop(float[] w, float[] outv)
     {
         D2(w);
-        Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) { float v = V[o + xx]; bufA[2 * (o + xx)] *= v; bufA[2 * (o + xx) + 1] *= v; } });
+        var m = mk;
+        Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) if (m[o + xx] == 0) { bufA[2 * (o + xx)] = 0; bufA[2 * (o + xx) + 1] = 0; } });
         DTsumFromBufA(outv);
         Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) outv[o + xx] += 1e-9f * w[o + xx]; });
     }
@@ -155,11 +152,12 @@ public sealed class ShearSolver : IDisposable
         return s;
     }
 
+    /// <summary>x0 may be `z` (it is copied into x before z is used as scratch).</summary>
     void Cg(float[] bvec_, float[] x0, int maxIter, double rtol, SolveOptions o, int pass, int passes, out int iters, out double relRes)
     {
         Array.Copy(x0, x, n);
         Aop(x, q);   // q = A x0
-        Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) r[o + xx] = bvec_[o + xx] - q[o + xx]; });
+        Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) r[off + xx] = bvec_[off + xx] - q[off + xx]; });
         double bnorm = Math.Sqrt(Dot(bvec_, bvec_)), atol = rtol * bnorm, rho = 0, rhoPrev = 0; iters = 0;
         for (int it = 0; it < maxIter; it++)
         {
@@ -167,54 +165,56 @@ public sealed class ShearSolver : IDisposable
             o.Progress?.Invoke((pass + (double)it / maxIter) / passes);
             if (Math.Sqrt(Dot(r, r)) < atol) break;
             Pop(r, z); rho = Dot(r, z);
-            if (it > 0) { float beta = (float)(rho / rhoPrev); Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) p[o + xx] = p[o + xx] * beta + z[o + xx]; }); }
+            if (it > 0) { float beta = (float)(rho / rhoPrev); Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) p[off + xx] = p[off + xx] * beta + z[off + xx]; }); }
             else Array.Copy(z, p, n);
             Aop(p, q);
             float alpha = (float)(rho / Dot(p, q));
-            Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) { x[o + xx] += alpha * p[o + xx]; r[o + xx] -= alpha * q[o + xx]; } });
+            Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) { x[off + xx] += alpha * p[off + xx]; r[off + xx] -= alpha * q[off + xx]; } });
             rhoPrev = rho; iters++;
         }
         relRes = Math.Sqrt(Dot(r, r)) / Math.Max(bnorm, 1e-300);
     }
 
     // ---- solve_opd ---------------------------------------------------------------------------------------------
-    /// <summary>A1,A2: interleaved complex lobes (M x M). mask: byte. Returns W [m] (float, M*M, unmasked, piston/tilt NOT yet removed).</summary>
+    /// <summary>
+    /// A1,A2: interleaved complex lobes (M x M); they are modified IN PLACE (piston removal). mask: byte.
+    /// Returns W [m] (M*M, unmasked, piston/tilt NOT yet removed).
+    /// </summary>
     public float[] Solve(float[] A1, float[] A2, byte[] mask, SolveOptions o, out SolveInfo info)
     {
         float c = (float)(-2 * Math.PI / lam);   // sigma = -1
-        for (long i = 0; i < n; i++) V[i] = mask[i];
-        RemovePiston(A1, Ap0, mask); RemovePiston(A2, Ap1, mask);
-        Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) { long i = off + xx; ph0[i] = MathF.Atan2(Ap0[2 * i + 1], Ap0[2 * i]); ph1[i] = MathF.Atan2(Ap1[2 * i + 1], Ap1[2 * i]); } });
-        var W = new float[n]; var x0 = new float[n]; int passes = 1 + o.UnwrapPasses;
+        mk = mask;
+        RemovePiston(A1, mask); RemovePiston(A2, mask);
+        Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) { long i = off + xx; ph0[i] = MathF.Atan2(A1[2 * i + 1], A1[2 * i]); ph1[i] = MathF.Atan2(A2[2 * i + 1], A2[2 * i]); } });
+        var W = new float[n]; int passes = 1 + o.UnwrapPasses;
         var iterL = new int[passes]; var relL = new double[passes];
+        float[] pred0 = p, pred1 = q;   // CG scratch is free once a pass has finished
         for (int pass = 0; pass < passes; pass++)
         {
-            Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) { long i = off + xx; bufA[2 * i] = V[i] * ph0[i] / c; bufA[2 * i + 1] = V[i] * ph1[i] / c; } });
+            Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) { long i = off + xx; float v = mask[i] != 0 ? 1f : 0f; bufA[2 * i] = v * ph0[i] / c; bufA[2 * i + 1] = v * ph1[i] / c; } });
             DTsumFromBufA(bvec);
-            if (pass == 0 && o.WarmW != null) Array.Copy(o.WarmW, x0, n);
-            else if (pass > 0 && o.WarmAllPasses) Array.Copy(W, x0, n);
-            else Pop(bvec, x0);
-            Cg(bvec, x0, o.Iters, o.Rtol, o, pass, passes, out iterL[pass], out relL[pass]);
+            if (pass == 0 && o.WarmW != null) Array.Copy(o.WarmW, z, n);
+            else if (pass > 0 && o.WarmAllPasses) Array.Copy(W, z, n);
+            else Pop(bvec, z);
+            Cg(bvec, z, o.Iters, o.Rtol, o, pass, passes, out iterL[pass], out relL[pass]);
             Array.Copy(x, W, n);
             D2(W);
             Parallel.For(0, M, y => { long off = (long)y * M; for (int xx = 0; xx < M; xx++) { long i = off + xx; pred0[i] = c * bufA[2 * i]; pred1[i] = c * bufA[2 * i + 1]; } });
-            if (pass < o.UnwrapPasses)
-            {
-                Rewrap(Ap0, pred0, ph0, mask); Rewrap(Ap1, pred1, ph1, mask);
-            }
+            if (pass < o.UnwrapPasses) { Rewrap(A1, pred0, ph0, mask); Rewrap(A2, pred1, ph1, mask); }
         }
         double r0 = 0, r1 = 0; long cnt = 0; double d0 = 0, d1 = 0, m0 = 0, m1 = 0;
         for (long i = 0; i < n; i++) if (mask[i] != 0) { double e0 = pred0[i] - ph0[i], e1 = pred1[i] - ph1[i]; r0 += e0 * e0; r1 += e1 * e1; m0 += ph0[i]; m1 += ph1[i]; d0 += (double)ph0[i] * ph0[i]; d1 += (double)ph1[i] * ph1[i]; cnt++; }
         info = new SolveInfo(iterL, new[] { Math.Sqrt(r0 / cnt), Math.Sqrt(r1 / cnt) },
             new[] { Math.Sqrt(Math.Max(0, d0 / cnt - (m0 / cnt) * (m0 / cnt))), Math.Sqrt(Math.Max(0, d1 / cnt - (m1 / cnt) * (m1 / cnt))) }, relL);
+        mk = Array.Empty<byte>();
         return W;
     }
 
-    void RemovePiston(float[] A, float[] dst, byte[] mask)
+    void RemovePiston(float[] A, byte[] mask)
     {
         double sr = 0, si = 0; for (long i = 0; i < n; i++) if (mask[i] != 0) { sr += A[2 * i]; si += A[2 * i + 1]; }
         double ang = Math.Atan2(si, sr); float cr = (float)Math.Cos(-ang), ci = (float)Math.Sin(-ang);
-        Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) { long i = 2 * (o + xx); float re = A[i], im = A[i + 1]; dst[i] = re * cr - im * ci; dst[i + 1] = re * ci + im * cr; } });
+        Parallel.For(0, M, y => { long o = (long)y * M; for (int xx = 0; xx < M; xx++) { long i = 2 * (o + xx); float re = A[i], im = A[i + 1]; A[i] = re * cr - im * ci; A[i + 1] = re * ci + im * cr; } });
     }
 
     /// <summary>ph = pred + angle(Ap * exp(-i pred)), then subtract the masked mean.</summary>

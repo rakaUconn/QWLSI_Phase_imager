@@ -5,37 +5,63 @@ namespace Qwlsi.Core;
 public sealed class ReconResult
 {
     public float[] Opd = Array.Empty<float>();        // [m], NaN outside the mask, piston removed (M*M)
-    public float[] Field = Array.Empty<float>();      // complex64 interleaved U = sqrt(I) exp(i 2 pi W / lambda) * mask
-    public float[] Intensity = Array.Empty<float>();
+    public float[] Intensity = Array.Empty<float>();  // normalised, 0 outside the mask
     public byte[] Mask = Array.Empty<byte>();
-    public float[] RawW = Array.Empty<float>();       // solver output (before piston removal / NaN) — reusable as warm start
+    public float[]? RawW;                             // solver output (only with SolveOptions.KeepRawW) — reusable as warm start
     public WavefrontStats Stats = new(0, 0, 0, 0, 0, 0, 0);
     public SolveInfo Solve = new(Array.Empty<int>(), Array.Empty<double>(), Array.Empty<double>(), Array.Empty<double>());
     public double BlackLevel;
+    public int M;
     public Dictionary<string, double> TimingsMs = new();
+
+    /// <summary>Complex field U = sqrt(I) exp(i 2 pi W / lambda) * mask, complex64 interleaved. Built on demand (not stored).</summary>
+    public float[] BuildField(double lambda)
+    {
+        long n = Opd.Length; var f = new float[2 * n];
+        Parallel.For(0, M, y =>
+        {
+            for (long i = (long)y * M; i < (long)(y + 1) * M; i++)
+            {
+                if (Mask[i] == 0 || float.IsNaN(Opd[i])) continue;
+                double a = Math.Sqrt(Intensity[i]), ph = 2 * Math.PI * Opd[i] / lambda;
+                f[2 * i] = (float)(a * Math.Cos(ph)); f[2 * i + 1] = (float)(a * Math.Sin(ph));
+            }
+        });
+        return f;
+    }
 }
 
-/// <summary>Port of reconstruct() from qwlsi_single_frame.py. Owns FFT plans and all large buffers (reuse across frames).</summary>
+/// <summary>Port of reconstruct() from qwlsi_single_frame.py. Owns FFT plans; big buffers are allocated per call and released.</summary>
 public sealed partial class Processor : IDisposable
 {
     readonly QwlsiParams par; readonly int N, M, Dec; readonly long nM;
     readonly RealFft2D bigFft; readonly ComplexFft2D smallFft;
-    readonly float[] work, spectrum, zbuf;
+    float[]? work, spectrum;
     ShearSolver? solver;
+    /// <summary>Run a blocking GC after releasing the 81 MB spectrum so the working set really drops (offline: true; live: false).</summary>
+    public bool TrimAfterSpectrum { get; set; } = true;
+    /// <summary>Keep the solver (~110 MB) between frames for speed (live capture loops). Default false: released after every frame (rebuild costs ~50 ms).</summary>
+    public bool KeepSolver { get; set; }
+
+    static void Compact()
+    {
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(2, GCCollectionMode.Forced, true, true);
+    }
 
     public Processor(QwlsiParams p)
     {
         par = p; N = p.N; M = p.M; Dec = p.Dec; nM = (long)M * M;
         bigFft = new RealFft2D(N); smallFft = new ComplexFft2D(M);
-        work = new float[(long)N * N]; spectrum = new float[2L * N * (N / 2 + 1)]; zbuf = new float[2 * nM];
     }
 
     /// <summary>Spectrum value F[ky,kx] (any integer bin, wrapped) from the r2c half spectrum via conjugate symmetry.</summary>
     (float re, float im) F(int ky, int kx)
     {
+        var sp = spectrum!;
         ky = ((ky % N) + N) % N; kx = ((kx % N) + N) % N; int C = N / 2 + 1;
-        if (kx < C) { long i = 2 * ((long)ky * C + kx); return (spectrum[i], spectrum[i + 1]); }
-        long j = 2 * ((long)((N - ky) % N) * C + (N - kx)); return (spectrum[j], -spectrum[j + 1]);
+        if (kx < C) { long i = 2 * ((long)ky * C + kx); return (sp[i], sp[i + 1]); }
+        long j = 2 * ((long)((N - ky) % N) * C + (N - kx)); return (sp[j], -sp[j + 1]);
     }
 
     /// <summary>window(): M x M spectral window around integer bin kc=(kx,ky), smooth circular taper, inverse FFT, scale 1/N^2 (= M^2/N^2 * numpy's 1/M^2).</summary>
@@ -74,65 +100,82 @@ public sealed partial class Processor : IDisposable
         return dest;
     }
 
-    /// <summary>mean of the frame, work = frame - mean, spectrum = r2c FFT of work. Returns the mean.</summary>
-    float ComputeSpectrum(float[] frame)
+    /// <summary>
+    /// mean of the frame and r2c spectrum of (frame - mean). inPlace: the frame buffer itself is overwritten with frame - mean
+    /// (no extra 81 MB copy); otherwise `work` holds the mean-removed copy (needed by the DFT-peak search).
+    /// </summary>
+    float ComputeSpectrum(float[] frame, bool inPlace)
     {
         double s = 0; object lk = new();
         Parallel.For(0, N, () => 0.0, (y, st, acc) => { long o = (long)y * N; for (int x = 0; x < N; x++) acc += frame[o + x]; return acc; }, acc => { lock (lk) s += acc; });
-        float mu = (float)(s / ((double)N * N));
-        Parallel.For(0, N, y => { long o = (long)y * N; for (int x = 0; x < N; x++) work[o + x] = frame[o + x] - mu; });
-        bigFft.Forward(work, spectrum); return mu;
+        float mu = (float)(s / ((double)N * N)); float[] src;
+        if (inPlace) { Parallel.For(0, N, y => { long o = (long)y * N; for (int x = 0; x < N; x++) frame[o + x] -= mu; }); src = frame; }
+        else { work ??= new float[(long)N * N]; var w = work; Parallel.For(0, N, y => { long o = (long)y * N; for (int x = 0; x < N; x++) w[o + x] = frame[o + x] - mu; }); src = w; }
+        spectrum ??= new float[2L * N * (N / 2 + 1)];
+        bigFft.Forward(src, spectrum); return mu;
     }
+
+    void ReleaseBigBuffers() { work = null; spectrum = null; if (TrimAfterSpectrum) Compact(); }
+
+    /// <summary>Frees the solver buffers (~110 MB). Call at the end of a batch / when idle.</summary>
+    public void TrimMemory() { solver?.Dispose(); solver = null; work = null; spectrum = null; Compact(); }
 
     /// <summary>
     /// Reconstruct one frame. Without `reference`: carriers from `calib` (static system wavefront is included in the OPD).
     /// With `reference`: carriers come from the reference, sample lobes are divided by the reference lobes (A/A_ref -> the
-    /// phase of A*conj(A_ref)), giving the sample-only OPD; `calib` is ignored.
+    /// phase of A*conj(A_ref)), giving the sample-only OPD; `calib` is ignored. `frame` is not modified.
     /// </summary>
     public ReconResult Process(float[] frame, Calibration? calib, SolveOptions? opt = null, ReferenceData? reference = null)
     {
-        opt ??= new SolveOptions(); var res = new ReconResult(); var sw = Stopwatch.StartNew();
+        float[]? f = frame; return ProcessCore(ref f, false, calib, opt, reference);
+    }
+
+    /// <summary>Same as Process but consumes the frame: it is overwritten and the caller's reference is set to null as soon as
+    /// the spectrum is computed, so the 81 MB frame is freed before the solve (lowest peak memory).</summary>
+    public ReconResult ProcessConsuming(ref float[]? frame, Calibration? calib, SolveOptions? opt = null, ReferenceData? reference = null)
+        => ProcessCore(ref frame, true, calib, opt, reference);
+
+    ReconResult ProcessCore(ref float[]? frameRef, bool consume, Calibration? calib, SolveOptions? opt, ReferenceData? reference)
+    {
+        opt ??= new SolveOptions(); var res = new ReconResult { M = M }; var sw = Stopwatch.StartNew();
         void Lap(string k) { res.TimingsMs[k] = sw.Elapsed.TotalMilliseconds; sw.Restart(); }
         var cal = reference?.Carriers ?? calib ?? throw new ArgumentException("calibration or reference required");
         var fa = cal.Fa; var fb = cal.Fb;
+        if (frameRef == null || frameRef.LongLength != (long)N * N) throw new ArgumentException($"frame must be {N}x{N}");
 
-        float mu = ComputeSpectrum(frame); Lap("fft_full_r2c");
+        float mu = ComputeSpectrum(frameRef, consume); if (consume) frameRef = null; Lap("fft_full_r2c");
 
-        var A1 = new float[2 * nM]; var A2 = new float[2 * nM];
+        var A1 = new float[2 * nM]; var A2 = new float[2 * nM]; var I = new float[nM];
+        Window(0, 0, A1);                                   // zero-order lobe (A1 used as scratch before it holds lobe A)
+        Parallel.For(0, M, y => { long o = (long)y * M; for (int x = 0; x < M; x++) I[o + x] = A1[2 * (o + x)] + mu; });
         Baseband(fa, A1); Baseband(fb, A2);
-        var I0 = new float[nM]; Window(0, 0, zbuf);
-        Parallel.For(0, M, y => { long o = (long)y * M; for (int x = 0; x < M; x++) I0[o + x] = zbuf[2 * (o + x)] + mu; });
-        Lap("demod_lobes");
+        ReleaseBigBuffers(); Lap("demod_lobes");
 
         var mask = ImageOps.MakeMask(A1, A2, M); res.Mask = mask; Lap("mask");
         if (reference != null) { MulConj(A1, reference.A1); MulConj(A2, reference.A2); Lap("ref_divide"); }
 
         if (solver == null || !solver.FaKey!.SequenceEqual(fa) || !solver.FbKey!.SequenceEqual(fb)) { solver?.Dispose(); solver = new ShearSolver(par, fa, fb); Lap("solver_setup"); }
-        var W = solver.Solve(A1, A2, mask, opt, out var info); res.Solve = info; res.RawW = W; Lap("solve");
+        var W = solver.Solve(A1, A2, mask, opt, out var info); res.Solve = info; Lap("solve");
+        A1 = null!; A2 = null!;
+        if (opt.KeepRawW) res.RawW = (float[])W.Clone();
 
-        // piston removal, NaN outside mask
+        // piston removal, NaN outside mask (in place on W)
         double sm = 0; long cnt = 0; for (long i = 0; i < nM; i++) if (mask[i] != 0) { sm += W[i]; cnt++; }
-        float mean = (float)(sm / cnt); var opd = new float[nM]; var wz = new float[nM];
-        for (long i = 0; i < nM; i++) { if (mask[i] != 0) { wz[i] = W[i] - mean; opd[i] = wz[i]; } else opd[i] = float.NaN; }
-        res.Opd = opd;
+        float mean = (float)(sm / cnt);
+        for (long i = 0; i < nM; i++) W[i] = mask[i] != 0 ? W[i] - mean : float.NaN;
+        res.Opd = W;
 
-        // intensity: black level from the DC lobe
-        var tmp = (float[])I0.Clone(); double lo = ImageOps.Percentile(tmp, (int)nM, 10);
-        double bs = 0; long bc = 0; double thr = 1.5 * lo + 1; for (long i = 0; i < nM; i++) if (I0[i] < thr) { bs += I0[i]; bc++; }
+        // intensity: black level from the DC lobe, normalised by the 95th percentile inside the mask
+        var tmp = (float[])I.Clone(); double lo = ImageOps.Percentile(tmp, (int)nM, 10);
+        double bs = 0; long bc = 0; double thr = 1.5 * lo + 1; for (long i = 0; i < nM; i++) if (I[i] < thr) { bs += I[i]; bc++; }
         float black = (float)(bs / bc); res.BlackLevel = black;
-        var I = new float[nM]; var vals = new float[cnt]; long k = 0;
-        for (long i = 0; i < nM; i++) { I[i] = Math.Max(I0[i] - black, 0f); if (mask[i] != 0) vals[k++] = I[i]; }
-        double p95 = ImageOps.Percentile(vals, (int)cnt, 95);
-        var field = new float[2 * nM];
-        for (long i = 0; i < nM; i++)
-        {
-            if (mask[i] == 0) { I[i] = 0; continue; }
-            I[i] = (float)(I[i] / p95); double ph = 2 * Math.PI * wz[i] / par.Lambda, a = Math.Sqrt(I[i]);
-            field[2 * i] = (float)(a * Math.Cos(ph)); field[2 * i + 1] = (float)(a * Math.Sin(ph));
-        }
-        res.Intensity = I; res.Field = field; Lap("intensity_field");
+        long k = 0; for (long i = 0; i < nM; i++) { I[i] = Math.Max(I[i] - black, 0f); if (mask[i] != 0) tmp[k++] = I[i]; }
+        double p95 = ImageOps.Percentile(tmp, (int)cnt, 95); tmp = null!;
+        for (long i = 0; i < nM; i++) I[i] = mask[i] != 0 ? (float)(I[i] / p95) : 0f;
+        res.Intensity = I; Lap("intensity");
 
-        res.Stats = Zernike.Report(wz, mask, M, par.PitchM); Lap("zernike");
+        res.Stats = Zernike.Report(W, mask, M, par.PitchM); Lap("zernike");
+        if (!KeepSolver) { solver?.Dispose(); solver = null; if (TrimAfterSpectrum) Compact(); }
         return res;
     }
 

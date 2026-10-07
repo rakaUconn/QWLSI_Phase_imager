@@ -16,11 +16,11 @@ public sealed partial class Processor
     {
         var cx = new double[N]; var sx = new double[N]; var cy = new double[N]; var sy = new double[N];
         for (int i = 0; i < N; i++) { double a = -2 * Math.PI * p0 * i, b = -2 * Math.PI * p1 * i; cx[i] = Math.Cos(a); sx[i] = Math.Sin(a); cy[i] = Math.Cos(b); sy[i] = Math.Sin(b); }
-        double re = 0, im = 0; object lk = new();
+        double re = 0, im = 0; object lk = new(); var wk = work!;
         Parallel.For(0, N, () => (0.0, 0.0), (y, st, acc) =>
         {
             double rr = 0, ri = 0; long o = (long)y * N;
-            for (int x = 0; x < N; x++) { double v = work[o + x]; rr += v * cx[x]; ri += v * sx[x]; }
+            for (int x = 0; x < N; x++) { double v = wk[o + x]; rr += v * cx[x]; ri += v * sx[x]; }
             acc.Item1 += rr * cy[y] - ri * sy[y]; acc.Item2 += rr * sy[y] + ri * cy[y]; return acc;
         }, acc => { lock (lk) { re += acc.Item1; im += acc.Item2; } });
         return Math.Sqrt(re * re + im * im);
@@ -65,7 +65,7 @@ public sealed partial class Processor
             for (int ix = 1; ix < C - 1; ix++)
             {
                 double kx = ix / (double)N; if (Math.Abs(Math.Sqrt(kx * kx + ky * ky) - f0) >= 20.0 / N) continue;
-                long i = 2 * ((long)iy * C + ix); double m = Math.Sqrt((double)spectrum[i] * spectrum[i] + (double)spectrum[i + 1] * spectrum[i + 1]);
+                long i = 2 * ((long)iy * C + ix); double m = Math.Sqrt((double)spectrum![i] * spectrum[i] + (double)spectrum[i + 1] * spectrum[i + 1]);
                 if (m > acc.Item1) acc = (m, iy, ix);
             }
             return acc;
@@ -84,7 +84,7 @@ public sealed partial class Processor
     /// </summary>
     public Calibration CalibrateFromFlat(float[] frame, string? source = null)
     {
-        ComputeSpectrum(frame);
+        ComputeSpectrum(frame, false);
         var (fa0, fb0, _) = NominalCarriers();
         var outf = new List<double[]>(); var A = new float[2 * nM];
         foreach (var f0 in new[] { fa0, fb0 })
@@ -113,6 +113,7 @@ public sealed partial class Processor
             }
             outf.Add(f);
         }
+        ReleaseBigBuffers();
         return new Calibration { Fa = outf[0], Fb = outf[1], Source = source, Note = "carrier vectors [cyc/px] such that a flat wave gives zero differential-phase gradient" };
     }
 
@@ -128,9 +129,10 @@ public sealed partial class Processor
     public ReferenceData MakeReference(float[] frame, Calibration? carriers = null, string? source = null)
     {
         var cal = carriers ?? CalibrateFromFlat(frame, source);
-        ComputeSpectrum(frame);
+        ComputeSpectrum(frame, false);
         var r = new ReferenceData { Carriers = cal, A1 = new float[2 * nM], A2 = new float[2 * nM] };
         Baseband(cal.Fa, r.A1); Baseband(cal.Fb, r.A2);
+        ReleaseBigBuffers();
         return r;
     }
 }

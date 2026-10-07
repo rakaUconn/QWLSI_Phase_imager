@@ -14,6 +14,7 @@ static class Program
         else if (cmd == "warm") Warm();
         else if (cmd == "live") Live();
         else if (cmd == "calib") CalibRef();
+        else if (cmd == "mem") Mem(args.Skip(1).ToArray());
         else Console.WriteLine("commands: fft | fftcheck | golden [names...]");
     }
 
@@ -77,7 +78,7 @@ static class Program
         Console.WriteLine("--- cold, passes");
         Run("cold iters=60 unwrap=0", f1, g1, new SolveOptions { UnwrapPasses = 0 });
         Run("cold iters=60 unwrap=1", f1, g1, new SolveOptions { UnwrapPasses = 1 });
-        var Wsame = proc.Process(f1, calib).RawW;
+        var Wsame = proc.Process(f1, calib, new SolveOptions { KeepRawW = true }).RawW!;
         Console.WriteLine("--- warm start from the SAME frame's converged W (static scene)");
         foreach (int it in new[] { 60, 20, 10, 5, 2 }) Run($"warm(same) iters={it}", f1, g1, new SolveOptions { Iters = it, WarmW = Wsame });
         foreach (int it in new[] { 20, 10, 5 }) Run($"warm(same) iters={it} allpasses", f1, g1, new SolveOptions { Iters = it, WarmW = Wsame, WarmAllPasses = true });
@@ -138,6 +139,29 @@ static class Program
         }
     }
 
+    static void Mem(string[] a)
+    {
+        int nFrames = a.Length > 0 ? int.Parse(a[0]) : 1; var par = new QwlsiParams();
+        var calib = Calibration.Load(Path.Combine(Root, "recon_single_frame", "calibration.json"));
+        var names = new[] { "concave_1_img", "convex_2_img", "concave_2_img", "convex_1_img" };
+        var p = Process.GetCurrentProcess();
+        string Mb(long b) => (b / 1048576.0).ToString("F0");
+        Console.WriteLine($"start: working set {Mb(p.WorkingSet64)} MB");
+        using (var proc = new Processor(par) { KeepSolver = false })
+        {
+            for (int i = 0; i < nFrames; i++)
+            {
+                var sw = Stopwatch.StartNew();
+                float[]? img = TiffIO.ReadFrame(Path.Combine(Root, names[i % names.Length] + ".tif"), out _, out _);
+                var r = proc.ProcessConsuming(ref img, calib);
+                double t = sw.Elapsed.TotalSeconds; r = null; GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); p.Refresh();
+                Console.WriteLine($"frame {i + 1}: {t:F2} s | peak working set {Mb(p.PeakWorkingSet64)} MB, peak commit {Mb(p.PeakPagedMemorySize64)} MB | now WS {Mb(p.WorkingSet64)} MB, managed {Mb(GC.GetTotalMemory(false))} MB");
+            }
+        }
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); p.Refresh();
+        Console.WriteLine($"after dispose: working set {Mb(p.WorkingSet64)} MB, managed {Mb(GC.GetTotalMemory(false))} MB");
+    }
+
     static void Golden(string[] names)
     {
         var par = new QwlsiParams(); int M = par.M;
@@ -156,14 +180,14 @@ static class Program
             string g = Path.Combine(Root, @"recon_single_frame\results", name + "_OPD_m.npy");
             var gold = Npy.ReadFloat32(g, out var shp, out _);
             var (rms, n, oa, ob) = Compare(res.Opd, gold, M);
-            var goldF = Npy.ReadFloat32(Path.Combine(Root, @"recon_single_frame\results", name + "_field.npy"), out _, out _);
+            var fld = res.BuildField(par.Lambda); var goldF = Npy.ReadFloat32(Path.Combine(Root, @"recon_single_frame\results", name + "_field.npy"), out _, out _);
             double num = 0, den = 0, cov = 0, sa = 0, sb = 0, fnum = 0, fden = 0;
             for (long i = 0; i < (long)M * M; i++)
             {
                 double Ig = goldF[2 * i] * (double)goldF[2 * i] + goldF[2 * i + 1] * (double)goldF[2 * i + 1], Ic = res.Intensity[i];
                 if (res.Mask[i] == 0 || Ig == 0) continue;
                 num += (Ic - Ig) * (Ic - Ig); den += Ig * Ig; sa += Ic; sb += Ig; cov += Ic * Ig;
-                double dr = res.Field[2 * i] - goldF[2 * i], di = res.Field[2 * i + 1] - goldF[2 * i + 1]; fnum += dr * dr + di * di; fden += Ig;
+                double dr = fld[2 * i] - goldF[2 * i], di = fld[2 * i + 1] - goldF[2 * i + 1]; fnum += dr * dr + di * di; fden += Ig;
             }
             var st = res.Stats;
             Console.WriteLine($"{name,-16} cold {tCold,6:F2}s (load {tLoad:F2}s) | OPD-vs-golden rms {rms,7:F2} nm over {n} px (mask only-cs {oa}, only-py {ob}) | I relL2 {Math.Sqrt(num / den) * 100:F4}% | field relL2 {Math.Sqrt(fnum / fden) * 100:F4}%");
