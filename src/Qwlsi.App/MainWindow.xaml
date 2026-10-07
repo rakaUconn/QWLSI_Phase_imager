@@ -1,0 +1,227 @@
+<Window x:Class="Qwlsi.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:Qwlsi.App.Controls"
+        Title="QWLSI single-frame wavefront — offline" Width="1500" Height="920" MinWidth="1100" MinHeight="700" Background="White">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
+        <TabControl x:Name="Tabs" Grid.Row="0" SelectedIndex="{Binding SelectedTab, Mode=TwoWay}" Margin="6,6,6,0">
+
+            <!-- ============================================================ OFFLINE -->
+            <TabItem Header="Offline" FontSize="14">
+                <Grid Margin="8" DataContext="{Binding Offline}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="380"/><ColumnDefinition Width="*"/><ColumnDefinition Width="370"/></Grid.ColumnDefinitions>
+
+                    <!-- left: files, mode, run -->
+                    <DockPanel Grid.Column="0" Margin="0,0,10,0" LastChildFill="True">
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+                            <Button Content="Open file(s)…" Command="{Binding OpenFilesCommand}"/>
+                            <Button Content="Open folder…" Command="{Binding OpenFolderCommand}"/>
+                            <Button Content="Clear" Command="{Binding ClearListCommand}"/>
+                        </StackPanel>
+                        <CheckBox DockPanel.Dock="Top" Content="include subfolders" IsChecked="{Binding IncludeSubfolders}" Margin="0,4,0,4"/>
+                        <StackPanel DockPanel.Dock="Bottom">
+                            <GroupBox Header="Reference">
+                                <StackPanel>
+                                    <RadioButton Content="Without reference (uses calibration.json)" IsChecked="{Binding WithReference, Converter={StaticResource InvBool}}" GroupName="mode"/>
+                                    <StackPanel Margin="18,0,0,4">
+                                        <TextBlock Text="optional system wavefront to subtract (.npy):" Foreground="#555" FontSize="12"/>
+                                        <DockPanel><Button DockPanel.Dock="Right" Content="…" Padding="6,0" Command="{Binding BrowseSystemWavefrontCommand}" Margin="4,0,0,0"/>
+                                            <Button DockPanel.Dock="Right" Content="✕" Padding="6,0" Command="{Binding ClearSystemWavefrontCommand}" Margin="4,0,0,0"/>
+                                            <TextBox Text="{Binding SystemWavefrontPath, Mode=OneWay}" IsReadOnly="True" FontSize="11"/></DockPanel>
+                                    </StackPanel>
+                                    <RadioButton Content="With reference (flat frame; sample-only OPD)" IsChecked="{Binding WithReference}" GroupName="mode"/>
+                                    <DockPanel Margin="18,2,0,0"><Button DockPanel.Dock="Right" Content="…" Padding="6,0" Command="{Binding BrowseReferenceCommand}" Margin="4,0,0,0"/>
+                                        <Button DockPanel.Dock="Right" Content="✕" Padding="6,0" Command="{Binding ClearReferenceCommand}" Margin="4,0,0,0"/>
+                                        <TextBox Text="{Binding ReferencePath, Mode=OneWay}" IsReadOnly="True" FontSize="11"/></DockPanel>
+                                </StackPanel>
+                            </GroupBox>
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,6">
+                                <Button Content="Process all" Command="{Binding ProcessAllCommand}" FontWeight="SemiBold" Background="#DCE9F8"/>
+                                <Button Content="Process selected" Command="{Binding ProcessSelectedCommand}"/>
+                                <Button Content="Cancel" Command="{Binding CancelCommand}" IsEnabled="{Binding CanCancel}"/>
+                            </StackPanel>
+                            <ProgressBar Height="14" Minimum="0" Maximum="1" Value="{Binding Progress}"/>
+                            <TextBlock Text="{Binding ProgressText}" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="#444" FontSize="12"/>
+                        </StackPanel>
+                        <ListView x:Name="FileList" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}" AllowDrop="True" Drop="OnDropFiles" Margin="0,0,0,8" BorderBrush="{StaticResource Border}">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Frame" Width="140" DisplayMemberBinding="{Binding Name}"/>
+                                    <GridViewColumn Header="Status" Width="84" DisplayMemberBinding="{Binding Status}"/>
+                                    <GridViewColumn Header="Power" Width="74" DisplayMemberBinding="{Binding Power}"/>
+                                    <GridViewColumn Header="RMS" Width="64" DisplayMemberBinding="{Binding Rms}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </DockPanel>
+
+                    <!-- center: viewer -->
+                    <DockPanel Grid.Column="1">
+                        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                            <TextBlock Text="Show" Style="{StaticResource Label}"/><ComboBox Width="100" ItemsSource="{Binding Kinds}" SelectedItem="{Binding Kind}" Margin="0,0,10,0"/>
+                            <TextBlock Text="Colours" Style="{StaticResource Label}"/><ComboBox Width="95" ItemsSource="{Binding Colormaps}" SelectedItem="{Binding Cmap}" Margin="0,0,10,0"/>
+                            <TextBlock Text="OPD unit" Style="{StaticResource Label}"/><ComboBox Width="70" ItemsSource="{Binding UnitChoices}" SelectedItem="{Binding DisplayUnit}" Margin="0,0,10,0"/>
+                            <CheckBox Content="auto range" IsChecked="{Binding AutoRange}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBox Width="78" Text="{Binding VminText}"/><TextBlock Text=" – " VerticalAlignment="Center"/><TextBox Width="78" Text="{Binding VmaxText}"/>
+                            <Button Content="Apply" Command="{Binding ApplyRangeCommand}" Margin="6,0,0,0"/>
+                        </WrapPanel>
+                        <Border DockPanel.Dock="Top" Background="{StaticResource WarnBg}" BorderBrush="#E0B84A" BorderThickness="1" Padding="8,5" Margin="0,0,0,6">
+                            <Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasWarning}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
+                            <TextBlock Text="{Binding WarningText}" TextWrapping="Wrap" FontSize="12"/>
+                        </Border>
+                        <c:MapView Spec="{Binding Spec}"/>
+                    </DockPanel>
+
+                    <!-- right: results + export -->
+                    <ScrollViewer Grid.Column="2" Margin="10,0,0,0" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <GroupBox Header="Result">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding StatsText}" Style="{StaticResource Mono}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding InfoText}" Style="{StaticResource Mono}" TextWrapping="Wrap" Foreground="#555" Margin="0,8,0,0" FontSize="11"/>
+                                </StackPanel>
+                            </GroupBox>
+                            <GroupBox Header="Export">
+                                <StackPanel>
+                                    <TextBlock Text="Quantities" FontWeight="SemiBold"/>
+                                    <WrapPanel>
+                                        <CheckBox Content="OPD" IsChecked="{Binding Export.Opd}" Margin="0,2,12,2"/><CheckBox Content="intensity" IsChecked="{Binding Export.Intensity}" Margin="0,2,12,2"/>
+                                        <CheckBox Content="mask" IsChecked="{Binding Export.Mask}" Margin="0,2,12,2"/><CheckBox Content="complex field" IsChecked="{Binding Export.Field}" Margin="0,2,12,2"/>
+                                    </WrapPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4"><TextBlock Text="field as" Style="{StaticResource Label}"/><ComboBox Width="110" ItemsSource="{Binding FieldLayouts}" SelectedItem="{Binding Export.FieldPair}"/></StackPanel>
+                                    <TextBlock Text="Formats" FontWeight="SemiBold"/>
+                                    <WrapPanel>
+                                        <CheckBox Content="matrix .txt/.csv" IsChecked="{Binding Export.MatrixTxt}" Margin="0,2,12,2"/><CheckBox Content="XYZ list" IsChecked="{Binding Export.XyzTxt}" Margin="0,2,12,2"/>
+                                        <CheckBox Content="MATLAB .mat" IsChecked="{Binding Export.Mat}" Margin="0,2,12,2"/><CheckBox Content="NumPy .npy" IsChecked="{Binding Export.Npy}" Margin="0,2,12,2"/>
+                                        <CheckBox Content="TIFF float32" IsChecked="{Binding Export.Tiff32}" Margin="0,2,12,2"/><CheckBox Content="PNG preview" IsChecked="{Binding Export.Png}" Margin="0,2,12,2"/>
+                                    </WrapPanel>
+                                    <TextBlock Text="Text matrix / XYZ options" FontWeight="SemiBold" Margin="0,6,0,2"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                        <TextBlock Text="units" Style="{StaticResource Label}" Margin="0,0,6,4"/><ComboBox Grid.Column="1" ItemsSource="{Binding UnitChoices}" SelectedItem="{Binding ExportUnit}" Margin="0,0,10,4"/>
+                                        <TextBlock Grid.Column="2" Text="delimiter" Style="{StaticResource Label}" Margin="0,0,6,4"/><ComboBox Grid.Column="3" ItemsSource="{Binding Delimiters}" SelectedItem="{Binding Export.Matrix.Delim}" Margin="0,0,0,4"/>
+                                        <TextBlock Grid.Row="1" Text="decimals" Style="{StaticResource Label}" Margin="0,0,6,0"/><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Decimals, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,10,0"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="2" Text="outside" Style="{StaticResource Label}" Margin="0,0,6,0"/>
+                                        <ComboBox Grid.Row="1" Grid.Column="3" SelectedIndex="{Binding Export.Matrix.OutsideAsZero, Converter={StaticResource BoolIndex}}"><ComboBoxItem Content="NaN"/><ComboBoxItem Content="0"/></ComboBox>
+                                    </Grid>
+                                    <CheckBox Content="'#' comment header (λ, pitch, calibration, mode, date)" IsChecked="{Binding Export.Matrix.Header}" Margin="0,6,0,0"/>
+                                    <CheckBox Content="XYZ: drop pixels outside the pupil" IsChecked="{Binding Export.XyzDropMasked}"/>
+                                    <TextBlock Text="Output folder" Margin="0,8,0,2" FontWeight="SemiBold"/>
+                                    <DockPanel><Button DockPanel.Dock="Right" Content="…" Padding="6,0" Command="{Binding BrowseExportFolderCommand}" Margin="4,0,0,0"/><TextBox Text="{Binding ExportFolder}" ToolTip="empty = &lt;image folder&gt;\qwlsi_out"/></DockPanel>
+                                    <CheckBox Content="auto-export every frame during batch (+ summary.csv)" IsChecked="{Binding DataContext.Settings.AutoExportBatch, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,6,0,4"/>
+                                    <WrapPanel Margin="0,2,0,0">
+                                        <Button Content="Export current" Command="{Binding ExportCurrentCommand}" FontWeight="SemiBold" Background="#DCE9F8" Margin="0,0,6,4"/>
+                                        <Button Content="Open folder" Command="{Binding OpenExportFolderCommand}" Margin="0,0,6,4"/>
+                                        <Button Content="Summary CSV…" Command="{Binding SaveSummaryCommand}" Margin="0,0,6,4"/>
+                                        <Button Content="Save OPD as system wavefront…" Command="{Binding SaveAsSystemWavefrontCommand}" Margin="0,0,6,4"/>
+                                    </WrapPanel>
+                                    <TextBlock Text="{Binding ExportMessage}" TextWrapping="Wrap" Style="{StaticResource Mono}" FontSize="11" Foreground="#2A6A2A"/>
+                                </StackPanel>
+                            </GroupBox>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================================================ CALIBRATION -->
+            <TabItem Header="Calibration" FontSize="14">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><Grid Margin="12" DataContext="{Binding CalibrationVm}" MaxWidth="1100" HorizontalAlignment="Left">
+                    <StackPanel>
+                        <GroupBox Header="Loaded calibration">
+                            <StackPanel>
+                                <TextBlock Text="{Binding DataContext.CalibrationText, RelativeSource={RelativeSource AncestorType=Window}}" TextWrapping="Wrap" Style="{StaticResource Mono}" Margin="0,0,0,8"/>
+                                <WrapPanel>
+                                    <Button Content="Browse…" Command="{Binding BrowseCommand}"/>
+                                    <Button Content="Auto-find" Command="{Binding AutoFindCommand}"/>
+                                    <Button Content="Save as calibration.json…" Command="{Binding SaveCandidateCommand}"/>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding SearchLog}" Style="{StaticResource Mono}" Foreground="#555" Margin="0,8,0,0" TextWrapping="Wrap" FontSize="11"/>
+                                <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Foreground="#555" FontSize="12"
+                                           Text="calibration.json holds the two carrier vectors (cyc/px). It stays valid for any sample as long as grating, camera, relay and binning are unchanged. A carrier error is indistinguishable from defocus/astigmatism, so never use nominal carriers."/>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="Make a calibration from a flat / collimated frame">
+                            <StackPanel>
+                                <ListBox ItemsSource="{Binding FlatFiles}" Height="80" FontSize="12"/>
+                                <WrapPanel Margin="0,6,0,0">
+                                    <Button Content="Add flat frame(s)…" Command="{Binding AddFlatFilesCommand}"/>
+                                    <Button Content="Clear" Command="{Binding ClearFlatFilesCommand}"/>
+                                    <CheckBox Content="average all listed frames" IsChecked="{Binding AverageFrames}" VerticalAlignment="Center" Margin="6,0,12,0"/>
+                                    <Button Content="Calibrate" Command="{Binding CalibrateCommand}" FontWeight="SemiBold" Background="#DCE9F8"/>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding ProgressText}" Foreground="#555" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding NewCarriers}" Style="{StaticResource Mono}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding Diagnostics}" Style="{StaticResource Mono}" Foreground="#555" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                <WrapPanel Margin="0,6,0,0"><Button Content="Use this calibration" Command="{Binding UseCandidateCommand}" IsEnabled="{Binding HasCandidate}"/>
+                                    <Button Content="Save as calibration.json…" Command="{Binding SaveCandidateCommand}" IsEnabled="{Binding HasCandidate}"/></WrapPanel>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="Check the loaded calibration on a flat frame">
+                            <StackPanel>
+                                <Button Content="Process a flat frame…" Command="{Binding CheckOnFlatCommand}" HorizontalAlignment="Left"/>
+                                <TextBlock Text="{Binding CheckResult}" Style="{StaticResource Mono}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </Grid></ScrollViewer>
+            </TabItem>
+
+            <!-- ============================================================ SETTINGS -->
+            <TabItem Header="Settings" FontSize="14">
+                <Grid Margin="12" DataContext="{Binding SettingsVm}" HorizontalAlignment="Left" MaxWidth="700">
+                    <StackPanel>
+                        <GroupBox Header="System parameters (saved in %APPDATA%\QwlsiApp\settings.json)">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                <TextBlock Text="Cross-grating period Γ" Style="{StaticResource Label}" Margin="0,4"/><TextBox Grid.Column="1" Text="{Binding GammaUm}" Margin="0,3"/><TextBlock Grid.Column="2" Text=" µm" Style="{StaticResource Label}"/>
+                                <TextBlock Grid.Row="1" Text="Grating – camera distance d" Style="{StaticResource Label}" Margin="0,4"/><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DMm}" Margin="0,3"/><TextBlock Grid.Row="1" Grid.Column="2" Text=" mm" Style="{StaticResource Label}"/>
+                                <TextBlock Grid.Row="2" Text="Pixel size p" Style="{StaticResource Label}" Margin="0,4"/><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding PUm}" Margin="0,3"/><TextBlock Grid.Row="2" Grid.Column="2" Text=" µm" Style="{StaticResource Label}"/>
+                                <TextBlock Grid.Row="3" Text="Relay zoom Z" Style="{StaticResource Label}" Margin="0,4"/><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Zoom}" Margin="0,3"/>
+                                <TextBlock Grid.Row="4" Text="Wavelength λ" Style="{StaticResource Label}" Margin="0,4" FontWeight="SemiBold"/><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding LambdaNm}" Margin="0,3"/><TextBlock Grid.Row="4" Grid.Column="2" Text=" nm  (default 650)" Style="{StaticResource Label}"/>
+                                <TextBlock Grid.Row="5" Text="Spectral window radius R" Style="{StaticResource Label}" Margin="0,4"/><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding Radius}" Margin="0,3"/><TextBlock Grid.Row="5" Grid.Column="2" Text=" bins" Style="{StaticResource Label}"/>
+                                <TextBlock Grid.Row="6" Text="Decimation" Style="{StaticResource Label}" Margin="0,4"/><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding Decimation}" Margin="0,3"/>
+                                <TextBlock Grid.Row="7" Text="Sensor size (default; frames set their own)" Style="{StaticResource Label}" Margin="0,4"/><TextBox Grid.Row="7" Grid.Column="1" Text="{Binding Sensor}" Margin="0,3"/><TextBlock Grid.Row="7" Grid.Column="2" Text=" px" Style="{StaticResource Label}"/>
+                            </Grid>
+                        </GroupBox>
+                        <WrapPanel><Button Content="Save" Command="{Binding ApplyCommand}" FontWeight="SemiBold" Background="#DCE9F8"/><Button Content="Restore defaults" Command="{Binding ResetDefaultsCommand}"/></WrapPanel>
+                        <TextBlock Text="{Binding Message}" Margin="0,8,0,0" Foreground="#2A6A2A" TextWrapping="Wrap"/>
+                        <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="#555" FontSize="12"
+                                   Text="Changing λ: the shear scales with λ while the measured phase scales with 1/λ, so the reconstructed OPD is almost independent of this setting (+5 % in λ changes the OPD by &lt;1 nm). λ is used for the complex-field phase 2π·OPD/λ and in the exports. For another wavelength also re-check the calibration on a flat frame (should read 0.00 D) and make a new system wavefront from a flat frame."/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================================================ HELP -->
+            <TabItem Header="Help" FontSize="14">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="16" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Text="What this app does" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Text="It reconstructs the wavefront (OPD and complex field) from ONE raw QWLSI frame. The two shear interferograms are demodulated from the carrier peaks of the frame spectrum; the OPD is found by a masked least-squares inversion with the exact shear operator (Fourier-preconditioned conjugate gradient, 60 iterations × 3 passes). Intensity comes from the zero-order lobe." Margin="0,0,0,12"/>
+                    <TextBlock Text="Without reference / with reference" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="WITHOUT a reference the OPD includes the static system/beam wavefront (about 0.3–0.4 µm rms). Subtracting a system wavefront (an OPD made from a flat frame, e.g. ref_OPD_m.npy) reproduces reference-based results to about 5 nm. WITH a reference (a flat frame), the sample lobes are divided by the reference lobes and the carriers are detected from the reference, giving the sample-only OPD."/>
+                    <TextBlock Text="Calibration" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="A carrier-vector error is mathematically identical to defocus/astigmatism, so the carriers must come from a one-time calibration on a flat/collimated frame (Calibration tab). calibration.json is valid for any sample as long as grating, camera, relay and binning are unchanged, and is the same file the Python/MATLAB tools use. Auto-find order: folder of the loaded image → app folder → last-used path → %APPDATA%\QwlsiApp."/>
+                    <TextBlock Text="Wavelength" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="For a wavelength other than 650 nm set λ in Settings (the shear scales with λ). Re-check a flat frame (should read 0.00 D) and make a new flat-based system wavefront."/>
+                    <TextBlock Text="Conventions" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="Lens power from the Zernike defocus: + = concave (bowl). Piston and tilt are removed (tilt is not absolute in a single frame). The result grid is 1504 × 1504 at 3 px = 8.22 µm pitch. Outside the pupil the OPD is NaN (or 0 if chosen for the export)."/>
+                    <TextBlock Text="Exports" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="Matrix .txt/.csv: one image row per line, loadable with MATLAB readmatrix / numpy loadtxt. Defaults: nm, tab, 3 decimals, NaN outside, no header. XYZ list: x_mm, y_mm, OPD (origin = pupil centroid). .mat (v5), .npy (OPD in metres, complex64 field) and float32 TIFF are also available. A sidecar *_export.json records every parameter used."/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <Border Grid.Row="1" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="10,4">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding CalibrationText}" Style="{StaticResource Mono}" FontSize="11" TextTrimming="CharacterEllipsis" Grid.ColumnSpan="2"/>
+                <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding MemoryText}" Style="{StaticResource Mono}" FontSize="11" Foreground="#555"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

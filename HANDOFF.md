@@ -107,3 +107,8 @@ Camera model/serial and bit depth; whether other wavelengths will be used; prefe
 ## 13. Pending items (need hardware)
 - **Camera frame-rate measurement**: live transmittance fps with a real XIMEA camera, including readout and display (Phase 0 in-memory figure: 14-17 fps). Not measured: no camera is connected to the dev PC.
 - **Camera probe extension**: open the device, print model/serial/sensor size/bit depth, grab one 16-bit frame, save it as TIFF; ask the user for the camera model if DEVICE_NAME cannot be read.
+
+## 14. Status (updated after Phase 1)
+- Phase 0 accepted. Phase 1 (offline app) implemented: `src/Qwlsi.App` (WPF, MVVM). Screenshots in `docs/screenshots/` (produced by `QwlsiApp.exe --selftest <dir> --file a.tif;b.tif --ref ref.tif --calib calibration.json --flat ref.tif`).
+- Memory per frame (peak working set): headless pipeline ~350-400 MB without reference, ~430-520 MB with reference (was 695-722 MB); GUI ~600 MB peak (incl. WPF, 120 MB baseline). Idle after trim: ~80 MB working set.
+- Not in Phase 1 (deferred): FFT view marking lobes, profile line in the viewer, FolderWatcher/TiffStack sources, live screen (Phase 2), installer (Phase 3).

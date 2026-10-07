@@ -16,6 +16,7 @@ public sealed class QwlsiParams
     public int Dec { get; set; } = 3;               // decimation
     public int M => N / Dec;
     public double PitchM => Dec * P / Z;
+    public QwlsiParams Clone() => (QwlsiParams)MemberwiseClone();
 }
 
 /// <summary>calibration.json — same schema as the Python/MATLAB versions (fa, fb [cyc/px], source, note).</summary>

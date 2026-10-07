@@ -14,6 +14,9 @@ internal static unsafe class Mkl
     [DllImport(Lib)] public static extern int DftiComputeBackward(IntPtr h, void* a, void* b);
     [DllImport(Lib)] public static extern int DftiFreeDescriptor(ref IntPtr h);
     [DllImport(Lib)] public static extern void MKL_Set_Num_Threads(int n);
+    [DllImport(Lib)] public static extern void MKL_Free_Buffers();
+    /// <summary>Releases MKL's internal memory pool (FFT scratch) back to the OS.</summary>
+    public static void FreeBuffers() { try { MKL_Free_Buffers(); } catch { } }
 
     public const int REAL = 33, COMPLEX = 32, PLACEMENT = 11, NOT_INPLACE = 44, CE_STORAGE = 10, COMPLEX_COMPLEX = 39, IN_STRIDES = 12, OUT_STRIDES = 13;
     public static void Check(int rc, string what) { if (rc != 0) throw new InvalidOperationException($"MKL {what} failed rc={rc}"); }

@@ -77,7 +77,7 @@ public sealed class ReconSession : IDisposable
         if (ReferencePath != null)
         {
             string rk = ReferencePath + "|" + new FileInfo(ReferencePath).LastWriteTimeUtc.Ticks + "|" + procKey;
-            if (refData == null || refKey != rk) { progress?.Report(0.0); refData = pr.MakeReference(TiffIO.ReadFrame(ReferencePath, out _, out _), null, Path.GetFileName(ReferencePath)); refKey = rk; }
+            if (refData == null || refKey != rk) { progress?.Report(0.0); float[]? rf = TiffIO.ReadFrame(ReferencePath, out _, out _); refData = pr.MakeReferenceConsuming(ref rf, null, Path.GetFileName(ReferencePath)); refKey = rk; }
             rd = refData; oc.Mode = "with reference"; oc.ReferenceFile = ReferencePath; oc.CarriersUsed = rd.Carriers;
         }
         else
@@ -104,6 +104,8 @@ public sealed class ReconSession : IDisposable
     }
 
     /// <summary>Calibrate from one or more flat frames (averaged). Returns the new calibration (not yet set as current).</summary>
+    public CalibrationDiagnostics? LastCalibrationDiagnostics => proc?.LastCalibrationDiagnostics;
+
     public Calibration CalibrateFromFlat(IReadOnlyList<string> files, IProgress<string>? msg = null, CancellationToken ct = default)
     {
         if (files.Count == 0) throw new ArgumentException("no flat frames");
@@ -116,14 +118,14 @@ public sealed class ReconSession : IDisposable
         }
         if (files.Count > 1) { float s = 1f / files.Count; for (long k = 0; k < avg!.Length; k++) avg[k] *= s; }
         var pr = GetProcessor(ParamsForSize(w)); msg?.Report("finding carriers and refining (3 passes)...");
-        return pr.CalibrateFromFlat(avg!, files.Count == 1 ? Path.GetFileName(files[0]) : $"{files.Count} frames averaged, first: {Path.GetFileName(files[0])}");
+        return pr.CalibrateFromFlatConsuming(ref avg, files.Count == 1 ? Path.GetFileName(files[0]) : $"{files.Count} frames averaged, first: {Path.GetFileName(files[0])}");
     }
 
     /// <summary>Residual of the loaded calibration on a flat frame: carriers re-estimated from the frame vs the loaded ones [cyc/px], and the Zernike power of the flat frame (should be ~0.00 D).</summary>
     public (double dFaX, double dFaY, double dFbX, double dFbY) CarrierDifference(Calibration other, Calibration baseline) =>
         (other.Fa[0] - baseline.Fa[0], other.Fa[1] - baseline.Fa[1], other.Fb[0] - baseline.Fb[0], other.Fb[1] - baseline.Fb[1]);
 
-    public void Dispose() { proc?.Dispose(); proc = null; }
+    public void Dispose() { proc?.Dispose(); proc = null; refData = null; sysW = null; GC.Collect(); Mkl.FreeBuffers(); }
 }
 
 /// <summary>Subtract a static system wavefront (OPD [m], NaN outside) from a single-frame result; re-removes piston/tilt and recomputes the report.</summary>

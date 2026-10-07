@@ -15,6 +15,7 @@ static class Program
         else if (cmd == "live") Live();
         else if (cmd == "calib") CalibRef();
         else if (cmd == "mem") Mem(args.Skip(1).ToArray());
+        else if (cmd == "memsession") MemSession(args.Skip(1).ToArray());
         else Console.WriteLine("commands: fft | fftcheck | golden [names...]");
     }
 
@@ -160,6 +161,24 @@ static class Program
         }
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); p.Refresh();
         Console.WriteLine($"after dispose: working set {Mb(p.WorkingSet64)} MB, managed {Mb(GC.GetTotalMemory(false))} MB");
+    }
+
+    static void MemSession(string[] a)
+    {
+        bool withRef = a.Length > 0 && a[0] == "ref"; int n = a.Length > 1 ? int.Parse(a[1]) : 3; var p = Process.GetCurrentProcess();
+        string Mb(long b) => (b / 1048576.0).ToString("F0");
+        var names = new[] { "concave_1_img", "convex_2_img", "concave_2_img", "convex_1_img" };
+        using (var s = new ReconSession { Par = new QwlsiParams(), Calibration = Calibration.Load(Path.Combine(Root, "recon_single_frame", "calibration.json")), ReferencePath = withRef ? Path.Combine(Root, "ref.tif") : null })
+        {
+            for (int i = 0; i < n; i++)
+            {
+                var oc = s.ProcessFile(Path.Combine(Root, names[i % names.Length] + ".tif")); p.Refresh();
+                Console.WriteLine($"{(withRef ? "with-ref   " : "without-ref")} frame {i + 1}: {oc.Seconds:F2} s | peak WS during frame {oc.PeakWorkingSetMb:F0} MB, peak private {oc.PeakPrivateMb:F0} MB | process peak WS so far {Mb(p.PeakWorkingSet64)} MB | now WS {Mb(p.WorkingSet64)} MB");
+            }
+        }
+        p.Refresh(); Console.WriteLine($"after session dispose: WS {Mb(p.WorkingSet64)} MB, private {Mb(p.PrivateMemorySize64)} MB");
+        var gi = GC.GetGCMemoryInfo(); Console.WriteLine($"  GC: heap {Mb(gi.HeapSizeBytes)} MB, committed {Mb(gi.TotalCommittedBytes)} MB, fragmented {Mb(gi.FragmentedBytes)} MB");
+        Processor.TrimProcessMemory(); p.Refresh(); gi = GC.GetGCMemoryInfo(); Console.WriteLine($"after TrimProcessMemory: WS {Mb(p.WorkingSet64)} MB, private {Mb(p.PrivateMemorySize64)} MB; GC committed {Mb(gi.TotalCommittedBytes)} MB");
     }
 
     static void Golden(string[] names)

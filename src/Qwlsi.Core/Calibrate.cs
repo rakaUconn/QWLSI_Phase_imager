@@ -7,8 +7,13 @@ public sealed class ReferenceData
     public float[] A1 = Array.Empty<float>(), A2 = Array.Empty<float>();   // complex interleaved M x M
 }
 
+/// <summary>Convergence info of the last CalibrateFromFlat: size of the final carrier update and phase-plane fit residual, per carrier (a, b).</summary>
+public sealed record CalibrationDiagnostics(double[] LastUpdateCyclesPerPx, double[] PlaneFitResidualRad);
+
 public sealed partial class Processor
 {
+    public CalibrationDiagnostics? LastCalibrationDiagnostics { get; private set; }
+
     // ---- nominal carriers + DFT-peak refinement (nominal_carriers / dft_peak of the reference) --------------------
 
     /// <summary>|sum img*exp(-2 pi i (p0 x + p1 y))| of `work` (= img - mean), double accumulation.</summary>
@@ -85,8 +90,21 @@ public sealed partial class Processor
     public Calibration CalibrateFromFlat(float[] frame, string? source = null)
     {
         ComputeSpectrum(frame, false);
+        var c = CalibrateCore(source); ReleaseBigBuffers(); return c;
+    }
+
+    /// <summary>Same, but consumes the frame (overwritten, caller's reference nulled): no extra 81 MB copy.</summary>
+    public Calibration CalibrateFromFlatConsuming(ref float[]? frame, string? source = null)
+    {
+        var f = frame!; ComputeSpectrum(f, true); work = f; frame = null; f = null!;
+        var c = CalibrateCore(source); ReleaseBigBuffers(); return c;
+    }
+
+    /// <summary>Needs `spectrum` and `work` (= frame - mean) filled.</summary>
+    Calibration CalibrateCore(string? source)
+    {
         var (fa0, fb0, _) = NominalCarriers();
-        var outf = new List<double[]>(); var A = new float[2 * nM];
+        var outf = new List<double[]>(); var A = new float[2 * nM]; var upd = new double[2]; var resid = new double[2]; int carrier = 0;
         foreach (var f0 in new[] { fa0, fb0 })
         {
             var f = (double[])f0.Clone();
@@ -109,11 +127,19 @@ public sealed partial class Processor
                     for (int p = 0; p < 3; p++) { rhs[p] += g[p] * ph; for (int q = 0; q < 3; q++) G[p, q] += g[p] * g[q]; }
                 }
                 var cc = Solve3(G, rhs);
+                double ss = 0; long cn = 0;
+                for (int y = 0; y < M; y++) for (int x = 0; x < M; x++)
+                {
+                    long i = (long)y * M + x; if (m[i] == 0) continue;
+                    double re = A[2 * i] * cr - A[2 * i + 1] * ci, im = A[2 * i] * ci + A[2 * i + 1] * cr, ph = Math.Atan2(im, re);
+                    double e = ph - (cc[0] * (x * Dec - cx) + cc[1] * (y * Dec - cy) + cc[2]); ss += e * e; cn++;
+                }
+                resid[carrier] = Math.Sqrt(ss / cn); upd[carrier] = Math.Sqrt(cc[0] * cc[0] + cc[1] * cc[1]) / (2 * Math.PI);
                 f[0] += cc[0] / (2 * Math.PI); f[1] += cc[1] / (2 * Math.PI);
             }
-            outf.Add(f);
+            outf.Add(f); carrier++;
         }
-        ReleaseBigBuffers();
+        LastCalibrationDiagnostics = new CalibrationDiagnostics(upd, resid);
         return new Calibration { Fa = outf[0], Fb = outf[1], Source = source, Note = "carrier vectors [cyc/px] such that a flat wave gives zero differential-phase gradient" };
     }
 
@@ -130,6 +156,17 @@ public sealed partial class Processor
     {
         var cal = carriers ?? CalibrateFromFlat(frame, source);
         ComputeSpectrum(frame, false);
+        var r = new ReferenceData { Carriers = cal, A1 = new float[2 * nM], A2 = new float[2 * nM] };
+        Baseband(cal.Fa, r.A1); Baseband(cal.Fb, r.A2);
+        ReleaseBigBuffers();
+        return r;
+    }
+
+    /// <summary>Consuming variant of MakeReference: one spectrum, no frame copy (lowest peak memory).</summary>
+    public ReferenceData MakeReferenceConsuming(ref float[]? frame, Calibration? carriers = null, string? source = null)
+    {
+        var f = frame!; ComputeSpectrum(f, true); work = f; frame = null; f = null!;
+        var cal = carriers ?? CalibrateCore(source);
         var r = new ReferenceData { Carriers = cal, A1 = new float[2 * nM], A2 = new float[2 * nM] };
         Baseband(cal.Fa, r.A1); Baseband(cal.Fb, r.A2);
         ReleaseBigBuffers();

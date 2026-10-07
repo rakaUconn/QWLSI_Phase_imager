@@ -43,8 +43,18 @@ public sealed partial class Processor : IDisposable
     /// <summary>Keep the solver (~110 MB) between frames for speed (live capture loops). Default false: released after every frame (rebuild costs ~50 ms).</summary>
     public bool KeepSolver { get; set; }
 
+    /// <summary>Compacting blocking GC + MKL pool release + working-set trim: call when the app goes idle.</summary>
+    public static void TrimProcessMemory()
+    {
+        Compact();
+        try { EmptyWorkingSet(System.Diagnostics.Process.GetCurrentProcess().Handle); } catch { }
+    }
+
+    [System.Runtime.InteropServices.DllImport("psapi.dll")] static extern bool EmptyWorkingSet(IntPtr hProcess);
+
     static void Compact()
     {
+        Mkl.FreeBuffers();
         System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
         GC.Collect(2, GCCollectionMode.Forced, true, true);
     }
@@ -153,6 +163,7 @@ public sealed partial class Processor : IDisposable
 
         var mask = ImageOps.MakeMask(A1, A2, M); res.Mask = mask; Lap("mask");
         if (reference != null) { MulConj(A1, reference.A1); MulConj(A2, reference.A2); Lap("ref_divide"); }
+        if (TrimAfterSpectrum) GC.Collect(2, GCCollectionMode.Forced, true);   // drop mask-stage temporaries before the solver allocates
 
         if (solver == null || !solver.FaKey!.SequenceEqual(fa) || !solver.FbKey!.SequenceEqual(fb)) { solver?.Dispose(); solver = new ShearSolver(par, fa, fb); Lap("solver_setup"); }
         var W = solver.Solve(A1, A2, mask, opt, out var info); res.Solve = info; Lap("solve");
