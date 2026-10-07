@@ -13,6 +13,7 @@ static class Program
         else if (cmd == "fftcheck") FftCheck();
         else if (cmd == "warm") Warm();
         else if (cmd == "live") Live();
+        else if (cmd == "calib") CalibRef();
         else Console.WriteLine("commands: fft | fftcheck | golden [names...]");
     }
 
@@ -114,6 +115,26 @@ static class Program
             }
             double ms = sw.Elapsed.TotalMilliseconds / reps;
             Console.WriteLine($"{mode,-32} {ms,6:F1} ms/frame = {1000 / ms,5:F1} fps  (in-memory frame; excludes camera readout and display)");
+        }
+    }
+
+    static void CalibRef()
+    {
+        var par = new QwlsiParams(); int M = par.M; var calib = Calibration.Load(Path.Combine(Root, "recon_single_frame", "calibration.json"));
+        using var proc = new Processor(par); var sw = Stopwatch.StartNew();
+        var c = proc.CalibrateFromFlat(TiffIO.ReadFrame(Path.Combine(Root, "ref.tif"), out _, out _), "ref.tif");
+        Console.WriteLine($"calibrate_from_flat(ref.tif): {sw.Elapsed.TotalSeconds:F2} s");
+        Console.WriteLine($"  fa = [{c.Fa[0]:R}, {c.Fa[1]:R}]  json [{calib.Fa[0]:R}, {calib.Fa[1]:R}]  |diff| {Math.Abs(c.Fa[0] - calib.Fa[0]):E2} {Math.Abs(c.Fa[1] - calib.Fa[1]):E2}");
+        Console.WriteLine($"  fb = [{c.Fb[0]:R}, {c.Fb[1]:R}]  json [{calib.Fb[0]:R}, {calib.Fb[1]:R}]  |diff| {Math.Abs(c.Fb[0] - calib.Fb[0]):E2} {Math.Abs(c.Fb[1] - calib.Fb[1]):E2}");
+        var rd = proc.MakeReference(TiffIO.ReadFrame(Path.Combine(Root, "ref.tif"), out _, out _), c);
+        var sys = Npy.ReadFloat32(Path.Combine(Root, @"recon_single_frame\results", "ref_OPD_m.npy"), out _, out _);
+        foreach (var n in new[] { "concave_1_img", "concave_2_img", "concave_1-5_img", "convex_1_img", "convex_2_img", "convex_1-5_img" })
+        {
+            sw.Restart(); var r = proc.Process(TiffIO.ReadFrame(Path.Combine(Root, n + ".tif"), out _, out _), null, null, rd); double t = sw.Elapsed.TotalSeconds;
+            var g = Npy.ReadFloat32(Path.Combine(Root, @"recon_single_frame\results", n + "_OPD_m.npy"), out _, out _);
+            var e = new float[g.Length]; for (int i = 0; i < e.Length; i++) e[i] = g[i] - sys[i];
+            var (rms, _, _, _) = Compare(r.Opd, e, M);
+            Console.WriteLine($"with-ref {n,-16} {t:F2}s  vs (single - ref_OPD): {rms:F2} nm rms | power {r.Stats.PowerD:+0.0000;-0.0000} D astig {r.Stats.AstigRmsNm:F1} nm rms {r.Stats.RmsNm:F0} nm");
         }
     }
 
