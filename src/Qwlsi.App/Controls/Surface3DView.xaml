@@ -6,7 +6,7 @@
         <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Border BorderBrush="{StaticResource Border}" BorderThickness="1">
             <Grid>
-                <hx:Viewport3DX x:Name="Vp" BackgroundColor="#FF20252B" ShowCoordinateSystem="False" ShowViewCube="False" EnableSwapChainRendering="True"
+                <hx:Viewport3DX x:Name="Vp" BackgroundColor="#FF20252B" ShowCoordinateSystem="False" ShowViewCube="False" EnableMouseButtonHitTest="False" IsViewCubeEdgeClicksEnabled="False" EnableSwapChainRendering="True"
                                 MSAA="Four" FXAALevel="None" CameraRotationMode="Trackball" ZoomExtentsWhenLoaded="False"
                                 UseDefaultGestures="True" EnableDesignModeRendering="False"/>
                 <TextBlock x:Name="Message" Foreground="#C8D0D8" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14" TextWrapping="Wrap" TextAlignment="Center" Margin="30"

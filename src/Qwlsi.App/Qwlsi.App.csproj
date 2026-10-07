@@ -24,6 +24,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Helix hosts its Direct3D surface in a WinForms control: needed to catch its input exceptions without a modal dialog (no global WinForms usings) -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Qwlsi.Core\Qwlsi.Core.csproj" />
   </ItemGroup>
 

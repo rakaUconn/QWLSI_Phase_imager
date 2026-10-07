@@ -1,14 +1,15 @@
+3D mouse on EMPTY viewport: error log grew by 0 bytes (0 = no exception)
 without reference: Lens power     +0.711 D   (+ = concave / bowl) | Astigmatism    34.5 nm rms | Coma           198.6 nm rms | Spherical      28.4 nm rms | RMS            1863.6 nm | PV             7.432 µm | Pupil radius   4.233 mm
-with reference: Lens power     +0.718 D   (+ = concave / bowl) | Astigmatism    107.2 nm rms | Coma           21.8 nm rms | Spherical      6.9 nm rms | RMS            1852.5 nm | PV             7.180 µm | Pupil radius   4.233 mm
 export: Exported 10 file(s) to H:\caliberation\Phase_imager_cal\New\QwlsiApp\screens\export | concave_1_img_OPD_nm.txt | concave_1_img_intensity.txt | concave_1_img_OPD_xyz_nm.txt | concave_1_img_OPD_m.npy | concave_1_img_intensity.npy | concave_1_img_recon.mat | concave_1_img_OPD_nm.tif | concave_1_img_intensity.tif | concave_1_img_preview.png | concave_1_img_export.json
-MEM before zernike tab: WS 315 MB, private 640 MB, managed 243 MB
+MEM before zernike tab: WS 302 MB, private 803 MB, managed 223 MB
 zernike default: 3 term(s) removed | RMS   before    1879.5 nm   after    1859.4 nm | PV    before     7.432 µm   after     7.545 µm
 zernike +astig: 6 term(s) removed | RMS   before    1879.5 nm   after     253.7 nm | PV    before     7.432 µm   after     1.855 µm | removed defocus: +0.711 D | removed astigmatism (power vector): J45 +0.007 D, J0 -0.007 D || WARN: Defocus is removed: the filtered map no longer shows the lens power, and the removed power is NOT in the displayed OPD. | Astigmatism is removed: cylinder/axis of the sample are no longer visible in the filtered map.
-MEM after zernike tab: WS 269 MB, private 775 MB, managed 188 MB
-MEM 3D iso (hardware): WS 372 MB, private 912 MB, managed 240 MB
-3D: 512×512 mesh, 96,583 valid vertices, 191,666 triangles, cell 24.1 µm, built in 217 ms | OPD range -3423 … 3961 nm (raw) | software=False
-MEM 3D software WARP: WS 479 MB, private 1060 MB, managed 332 MB
-3D software: 256×256 mesh, 24,138 valid vertices, 47,556 triangles, cell 48.3 µm, built in 119 ms | OPD range -3419 … 3894 nm (raw) | software=True
-peak memory last frame: 561 MB
-idle before GC: WS 85 MB, private 1906 MB, managed 93 MB
-idle after trim: WS 3 MB, private 1891 MB, managed 91 MB
+MEM after zernike tab: WS 227 MB, private 830 MB, managed 144 MB
+MEM 3D iso (hardware): WS 297 MB, private 808 MB, managed 193 MB
+3D: 512×512 mesh, 96,583 valid vertices, 191,666 triangles, cell 24.1 µm, built in 28 ms | OPD range -3423 … 3961 nm (raw) | software=False
+3D mouse interaction: error log grew by 0 bytes (0 = no exception)
+MEM 3D software WARP: WS 415 MB, private 1030 MB, managed 287 MB
+3D software: 256×256 mesh, 24,138 valid vertices, 47,556 triangles, cell 48.3 µm, built in 145 ms | OPD range -3419 … 3894 nm (raw) | software=True
+peak memory last frame: 509 MB
+idle before GC: WS 452 MB, private 1854 MB, managed 133 MB
+idle after trim: WS 3 MB, private 1846 MB, managed 103 MB
