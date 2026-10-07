@@ -31,23 +31,32 @@ public class BoolIndexConverter : IValueConverter
 public partial class App : Application
 {
     public static bool SelfTestMode;
-    static void LogError(Exception e)
+
+    static MainViewModel? Vm => Current?.MainWindow?.DataContext as MainViewModel;
+
+    /// <summary>Single place for every unhandled exception: log + crash report (exception, diagnostics, settings in use).</summary>
+    static void Crash(Exception ex, string source, bool fatal, bool quiet = false)
     {
-        try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "qwlsi_error.log"), DateTime.Now + Environment.NewLine + e + Environment.NewLine + Environment.NewLine); } catch { }
-        try { if (Current?.MainWindow?.DataContext is MainViewModel vm) vm.StatusMessage = "A 3-D view input error was ignored (details in " + Path.Combine(Path.GetTempPath(), "qwlsi_error.log") + ")."; } catch { }
+        if (quiet)
+        {   // exceptions of the hosted Direct3D control: logged, shown in the status bar, no dialog
+            AppLog.Error("ignored exception in " + source, ex);
+            try { if (Vm != null) Vm.StatusMessage = "A 3-D view input error was ignored (details in the log: " + AppLog.CurrentFile + ")."; } catch { }
+            return;
+        }
+        var path = CrashReporter.Write(ex, source, Vm);
+        if (SelfTestMode) return;
+        CrashReporter.Notify(ex, path, fatal);
     }
 
     public App()
     {
+        AppLog.Initialize(); AppLog.Info($"QwlsiApp {AppInfo.Version} starting ({System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}, {Environment.ProcessorCount} logical processors)");
         // The 3-D viewer lives in a WinForms host: its exceptions would otherwise pop up the modal WinForms crash dialog.
         System.Windows.Forms.Application.SetUnhandledExceptionMode(System.Windows.Forms.UnhandledExceptionMode.CatchException);
-        System.Windows.Forms.Application.ThreadException += (_, e) => LogError(e.Exception);
-        DispatcherUnhandledException += (_, e) =>
-        {
-            try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "qwlsi_error.log"), DateTime.Now + Environment.NewLine + e.Exception + Environment.NewLine + Environment.NewLine); } catch { }
-            if (!SelfTestMode) MessageBox.Show(e.Exception.ToString(), "QwlsiApp error"); else Shutdown(2);
-            e.Handled = true;
-        };
+        System.Windows.Forms.Application.ThreadException += (_, e) => Crash(e.Exception, "WinForms host thread", false, quiet: true);
+        DispatcherUnhandledException += (_, e) => { Crash(e.Exception, "UI thread", false); e.Handled = true; if (SelfTestMode) Shutdown(2); };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Crash(e.ExceptionObject as Exception ?? new Exception(e.ExceptionObject?.ToString()), "AppDomain (fatal)", true);
+        TaskScheduler.UnobservedTaskException += (_, e) => { AppLog.Error("unobserved task exception", e.Exception); e.SetObserved(); };
     }
 
     /// <summary>
@@ -56,6 +65,7 @@ public partial class App : Application
     /// </summary>
     protected override void OnExit(ExitEventArgs e)
     {
+        AppLog.Info("QwlsiApp exiting (code " + e.ApplicationExitCode + ")");
         base.OnExit(e);
         var t = new Thread(() => { Thread.Sleep(2500); Environment.Exit(e.ApplicationExitCode); }) { IsBackground = true, Name = "ExitWatchdog" };
         t.Start();
@@ -64,7 +74,7 @@ public partial class App : Application
     void OnStartup(object sender, StartupEventArgs e)
     {
         var args = e.Args; string? Opt(string n) { int i = Array.IndexOf(args, n); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
-        var selftest = Opt("--selftest"); SelfTestMode = selftest != null; if (selftest != null) Directory.CreateDirectory(selftest);
+        var selftest = Opt("--selftest"); SelfTestMode = selftest != null; if (selftest != null) { Directory.CreateDirectory(selftest); Environment.SetEnvironmentVariable("QWLSI_APPDATA", Path.Combine(selftest, "appdata")); }   // self-test never touches the real settings / logs
         var settings = selftest != null ? new AppSettings() : null;      // self-test: defaults, never touches the user's settings.json
         var vm = new MainViewModel(settings);
         var win = new MainWindow { DataContext = vm };
@@ -112,10 +122,10 @@ static class SelfTest
             vm.SelectedTab = 0; await Idle(); Shot("01_offline_empty");
             {   // regression: mouse input on the EMPTY 3-D viewport (no result, no camera yet)
                 vm.SelectedTab = 2; await Task.Delay(1500); await Idle(); win.Activate(); var dpi0 = VisualTreeHelper.GetDpi(win); var o0 = win.View3D.PointToScreen(new Point(0, 0));
-                double W0 = win.View3D.ActualWidth * dpi0.DpiScaleX, H0 = win.View3D.ActualHeight * dpi0.DpiScaleY; string el = Path.Combine(Path.GetTempPath(), "qwlsi_error.log"); long b0 = File.Exists(el) ? new FileInfo(el).Length : 0;
+                double W0 = win.View3D.ActualWidth * dpi0.DpiScaleX, H0 = win.View3D.ActualHeight * dpi0.DpiScaleY; string el = Path.Combine(Path.GetTempPath(), "qwlsi_error.log"); long b0 = Qwlsi.Core.AppLog.ErrorCount + Qwlsi.App.Controls.SafeViewport3DX.Swallowed;
                 int ex = (int)(o0.X + W0 * 0.5), ey = (int)(o0.Y + H0 * 0.5); await Click(ex, ey); await Drag(ex, ey, ex + 100, ey + 40, false); await Drag(ex, ey, ex - 60, ey - 30, true);
                 mouse_event(WHEEL, 0, 0, 120, UIntPtr.Zero); await Task.Delay(300); await Click((int)(o0.X + W0 - 70 * dpi0.DpiScaleX), (int)(o0.Y + 70 * dpi0.DpiScaleY)); await Task.Delay(500);
-                long a0 = File.Exists(el) ? new FileInfo(el).Length : 0; log.Add("3D mouse on EMPTY viewport: error log grew by " + (a0 - b0) + " bytes (0 = no exception)"); vm.SelectedTab = 0; await Idle();
+                long a0 = Qwlsi.Core.AppLog.ErrorCount + Qwlsi.App.Controls.SafeViewport3DX.Swallowed; log.Add("3D mouse on EMPTY viewport: exception count grew by " + (a0 - b0) + " (0 = no exception)"); vm.SelectedTab = 0; await Idle();
             }
             vm.Offline.AddPaths(file.Split(';', StringSplitOptions.RemoveEmptyEntries)); await Idle();
             await vm.Offline.ProcessAllCommand.ExecuteAsync(null); await Idle(); await Task.Delay(300); await Idle();
@@ -153,19 +163,19 @@ static class SelfTest
             win.View3D.SavePng(Path.Combine(outDir, "12b_3d_viewport_renderbitmap.png")); log.Add("3D: " + vm.Surface3D.Info.Replace("\n", " | ") + " | software=" + win.View3D.IsSoftware);
             {   // real mouse input on the Direct3D viewport (regression test for the ViewBox hit-test crash): click, left-drag rotate, right-drag pan, wheel, view-cube click
                 win.Activate(); var dpi = VisualTreeHelper.GetDpi(win); var o = win.View3D.PointToScreen(new Point(0, 0)); double W = win.View3D.ActualWidth * dpi.DpiScaleX, H = win.View3D.ActualHeight * dpi.DpiScaleY;
-                int cx = (int)(o.X + W * 0.45), cy = (int)(o.Y + H * 0.5); string errLog = Path.Combine(Path.GetTempPath(), "qwlsi_error.log"); long before = File.Exists(errLog) ? new FileInfo(errLog).Length : 0;
+                int cx = (int)(o.X + W * 0.45), cy = (int)(o.Y + H * 0.5); string errLog = Path.Combine(Path.GetTempPath(), "qwlsi_error.log"); long before = Qwlsi.Core.AppLog.ErrorCount + Qwlsi.App.Controls.SafeViewport3DX.Swallowed;
                 await Click(cx, cy); await Drag(cx, cy, cx + 160, cy - 60, false); await Drag(cx, cy, cx - 80, cy + 50, true);
                 mouse_event(WHEEL, 0, 0, 120, UIntPtr.Zero); await Task.Delay(300); mouse_event(WHEEL, 0, 0, -120, UIntPtr.Zero); await Task.Delay(300);
                 await Click((int)(o.X + W - 70 * dpi.DpiScaleX), (int)(o.Y + 70 * dpi.DpiScaleY)); await Task.Delay(1200); await Idle(); ShotScreen("12c_3d_after_mouse_interaction");
-                long after = File.Exists(errLog) ? new FileInfo(errLog).Length : 0; log.Add("3D mouse interaction: error log grew by " + (after - before) + " bytes (0 = no exception)");
+                long after = Qwlsi.Core.AppLog.ErrorCount + Qwlsi.App.Controls.SafeViewport3DX.Swallowed; log.Add("3D mouse interaction: exception count grew by " + (after - before) + " (0 = no exception)");
             }
             {   // more states a user can reach before clicking: toggle software rendering, leave the tab and come back, change mesh size
                 win.Activate(); var dpi = VisualTreeHelper.GetDpi(win); string errLog = Path.Combine(Path.GetTempPath(), "qwlsi_error.log");
                 async Task<long> ClickViewport(string tag)
                 {
-                    long b = File.Exists(errLog) ? new FileInfo(errLog).Length : 0; var o = win.View3D.PointToScreen(new Point(0, 0)); double W = win.View3D.ActualWidth * dpi.DpiScaleX, H = win.View3D.ActualHeight * dpi.DpiScaleY;
+                    long b = Qwlsi.Core.AppLog.ErrorCount + Qwlsi.App.Controls.SafeViewport3DX.Swallowed; var o = win.View3D.PointToScreen(new Point(0, 0)); double W = win.View3D.ActualWidth * dpi.DpiScaleX, H = win.View3D.ActualHeight * dpi.DpiScaleY;
                     await Click((int)(o.X + W * 0.5), (int)(o.Y + H * 0.5)); await Drag((int)(o.X + W * 0.5), (int)(o.Y + H * 0.5), (int)(o.X + W * 0.6), (int)(o.Y + H * 0.45), false);
-                    long a = File.Exists(errLog) ? new FileInfo(errLog).Length : 0; log.Add($"3D mouse [{tag}]: error log grew by {a - b} bytes; swallowed so far {Qwlsi.App.Controls.SafeViewport3DX.Swallowed}"); return a - b;
+                    long a = Qwlsi.Core.AppLog.ErrorCount + Qwlsi.App.Controls.SafeViewport3DX.Swallowed; log.Add($"3D mouse [{tag}]: exception count grew by {a - b}; swallowed so far {Qwlsi.App.Controls.SafeViewport3DX.Swallowed}"); return a - b;
                 }
                 vm.Surface3D.Software = true; await Task.Delay(3000); await Idle(); await ClickViewport("after switching to WARP");
                 vm.Surface3D.Software = false; await Task.Delay(3000); await Idle(); await ClickViewport("after switching back to hardware");
@@ -183,6 +193,15 @@ static class SelfTest
             if (flat != "") { vm.CalibrationVm.FlatFiles.Add(flat); await vm.CalibrationVm.CalibrateCommand.ExecuteAsync(null); await Idle(); }
             vm.CalibrationVm.AutoFindCommand.Execute(null); await Idle(); Shot("06_calibration");
             vm.SelectedTab = 4; await Idle(); Shot("07_settings");
+            {   // About / diagnostics window
+                var about = new AboutWindow(vm) { Owner = win, Width = 1000, Height = 760 }; about.Show(); await Task.Delay(1200); await Idle();
+                File.WriteAllText(Path.Combine(outDir, "about_diagnostics.txt"), about.ReportText);
+                var fe = (FrameworkElement)about.Content; var rtb2 = new RenderTargetBitmap((int)fe.ActualWidth, (int)fe.ActualHeight, 96, 96, PixelFormats.Pbgra32); rtb2.Render(fe);
+                var enc2 = new PngBitmapEncoder(); enc2.Frames.Add(BitmapFrame.Create(rtb2)); using (var fs2 = File.Create(Path.Combine(outDir, "09_about.png"))) enc2.Save(fs2); about.Close();
+            }
+            {   // crash reporter: synthetic exception through the real code path
+                var crashPath = CrashReporter.Write(new InvalidOperationException("synthetic self-test exception"), "self-test", vm); log.Add("crash report written: " + crashPath + " (" + (crashPath != null && File.Exists(crashPath) ? new FileInfo(crashPath).Length + " bytes" : "MISSING") + ")");
+            }
             vm.SelectedTab = 5; await Idle(); Shot("08_help");
             log.Add("peak memory last frame: " + vm.Offline.LastPeakMb.ToString("F0") + " MB");
             var pr = System.Diagnostics.Process.GetCurrentProcess(); pr.Refresh(); string M(long b) => (b / 1048576).ToString();

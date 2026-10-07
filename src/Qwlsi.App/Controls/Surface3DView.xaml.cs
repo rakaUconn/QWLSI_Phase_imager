@@ -30,7 +30,7 @@ public sealed class SafeViewport3DX : Viewport3DX
         try { base.OnPreviewMouseDown(e); }
         catch (NullReferenceException ex)
         {
-            if (System.Threading.Interlocked.Increment(ref Swallowed) <= 3)
+            if (System.Threading.Interlocked.Increment(ref Swallowed) <= 3) AppLog.Warn("swallowed NullReferenceException in SafeViewport3DX.OnPreviewMouseDown: " + ex.StackTrace?.Split((char)10).FirstOrDefault());
                 try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "qwlsi_error.log"), DateTime.Now + " [swallowed in SafeViewport3DX.OnPreviewMouseDown]" + Environment.NewLine + ex.StackTrace?.Split('\n').FirstOrDefault() + Environment.NewLine + Environment.NewLine); } catch { }
         }
     }
@@ -90,7 +90,7 @@ public partial class Surface3DView : UserControl
         };
         try { em = useSoftware ? new DefaultEffectsManager(new EffectsManagerConfiguration { EnableSoftwareRendering = true }) : new DefaultEffectsManager(); vp.EffectsManager = em; rendererNote = useSoftware ? "renderer: Direct3D 11 WARP (software)" : "renderer: Direct3D 11 hardware"; }
         catch (Exception e) { rendererNote = "renderer unavailable: " + e.Message; if (!useSoftware) { Vp = vp; CreateViewport(true); return; } }
-        Vp = vp; VpHost.Children.Insert(0, Vp); RendererText.Text = rendererNote;
+        Vp = vp; VpHost.Children.Insert(0, Vp); RendererText.Text = rendererNote; AppState.Renderer = rendererNote + (useSoftware ? " (selected by the user or after a hardware failure)" : ""); AppLog.Info("3-D viewer created: " + rendererNote);
         Vp.RenderExceptionOccurred += (_, e) =>
         {
             if (!software) Dispatcher.BeginInvoke(() => { UseEffectsManager(true); RendererFallback?.Invoke("Direct3D hardware rendering failed (" + e.Exception.GetType().Name + ") — switched to software (WARP)."); });

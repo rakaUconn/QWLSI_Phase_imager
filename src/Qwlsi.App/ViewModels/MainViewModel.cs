@@ -40,6 +40,7 @@ public partial class MainViewModel : ObservableObject
     public void SetCalibration(Calibration c, string? path)
     {
         Current = c; CurrentPath = path; if (path != null) Settings.LastCalibrationPath = path; Settings.Save(); UpdateCalibrationText();
+        AppLog.Info($"calibration set: {path ?? "(unsaved)"} fa=[{c.Fa[0]:R},{c.Fa[1]:R}] fb=[{c.Fb[0]:R},{c.Fb[1]:R}]");
     }
 
     public void UpdateCalibrationText()

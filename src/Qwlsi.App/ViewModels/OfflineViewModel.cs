@@ -154,11 +154,12 @@ public partial class OfflineViewModel : ObservableObject
         main.IsBusy = true; IsRunning = true; CanCancel = true; cts = new CancellationTokenSource(); var ct = cts.Token;
         foreach (var it in items) { it.Status = "queued"; it.Power = it.Rms = it.Seconds = ""; }
         summary.Clear(); main.Settings.Save();
+        AppLog.Info($"batch start: {items.Count} frame(s), {(WithReference ? "with reference " + ReferencePath : "without reference")}, lambda {main.Settings.Params.Lambda * 1e9:G6} nm");
         var session = new ReconSession { Par = main.Settings.Params.Clone(), Calibration = main.Current, CalibrationPath = main.CurrentPath, ReferencePath = WithReference ? ReferencePath : null, SystemWavefrontPath = WithReference ? null : SystemWavefrontPath };
         bool filtered = main.Settings.ExportFilteredOpd; var zsel = main.ZernikeVm.Selection(); var paths = items.Select(i => i.Path).ToList(); var dispatcher = Application.Current.Dispatcher; var export = Export; bool auto = main.Settings.AutoExportBatch; string folder = EffectiveExportFolder();
         var prog = new Progress<BatchProgress>(bp =>
         {
-            var it = items[bp.Index]; if (bp.State == "processing") it.Status = bp.FileFraction <= 0 && WithReference && bp.Index == 0 ? "building reference…" : $"processing {bp.FileFraction * 100:F0} %";
+            var it = items[bp.Index]; AppState.CurrentFile = bp.File; if (bp.State == "processing") it.Status = bp.FileFraction <= 0 && WithReference && bp.Index == 0 ? "building reference…" : $"processing {bp.FileFraction * 100:F0} %";
             Progress = (bp.Index + Math.Clamp(bp.FileFraction, 0, 1)) / bp.Count; ProgressText = $"File {bp.Index + 1}/{bp.Count} — {System.IO.Path.GetFileName(bp.File)} — {bp.State}" + (bp.State == "processing" ? $" {bp.FileFraction * 100:F0} %" : "");
         });
         List<SummaryRow> rows = new(); var errors = new List<string>(); var sw = Stopwatch.StartNew();
@@ -169,14 +170,14 @@ public partial class OfflineViewModel : ObservableObject
                 var it = items[paths.IndexOf(oc.File)];
                 if (auto) { try { var zr = filtered ? main.ZernikeVm.MakeFor(oc, zsel, session.Par) : null; ResultExporter.Export(oc, session.Par, export, folder, null, (f, r) => dispatcher.Invoke(() => SavePng(f, oc)), zr); } catch (Exception e) { dispatcher.Invoke(() => ExportMessage = "Auto-export failed: " + e.Message); } }
                 dispatcher.Invoke(() => OnResult(it, oc));
-            }, (f, e) => dispatcher.Invoke(() => { var it = items[paths.IndexOf(f)]; it.Status = "error: " + e.Message; errors.Add(it.Name + ": " + e.Message); }), prog, ct));
+            }, (f, e) => dispatcher.Invoke(() => { var it = items[paths.IndexOf(f)]; it.Status = "error: " + e.Message; errors.Add(it.Name + ": " + e.Message); AppLog.Error("processing failed: " + f, e); }), prog, ct));
         }
         catch (Exception e) { main.StatusMessage = "Batch failed: " + e.Message; }
         finally { session.Dispose(); }
         foreach (var it in items) if (it.Status is "queued" or "building reference…" || it.Status.StartsWith("processing")) it.Status = "cancelled";
         summary.AddRange(rows);
         if (auto && rows.Count > 0) try { Directory.CreateDirectory(folder); SummaryCsv.Write(System.IO.Path.Combine(folder, "summary.csv"), rows); } catch { }
-        IsRunning = false; CanCancel = false; main.IsBusy = false; Progress = ct.IsCancellationRequested ? Progress : 1;
+        AppState.CurrentFile = null; IsRunning = false; CanCancel = false; main.IsBusy = false; Progress = ct.IsCancellationRequested ? Progress : 1;
         ProgressText = ct.IsCancellationRequested ? "Cancelled." : $"Done: {rows.Count(r => r.Error == "")}/{items.Count} frame(s) in {sw.Elapsed.TotalSeconds:F1} s" + (errors.Count > 0 ? $", {errors.Count} error(s)" : "");
         main.StatusMessage = ProgressText + (auto ? $"  Exports in {folder}" : "");
         Processor.TrimProcessMemory();
@@ -186,6 +187,9 @@ public partial class OfflineViewModel : ObservableObject
     {
         var st = oc.Result.Stats; it.Status = "done"; it.Power = st.PowerD.ToString("+0.000;-0.000", Inv) + " D"; it.Rms = st.RmsNm.ToString("F0", Inv) + " nm"; it.Seconds = oc.Seconds.ToString("F1", Inv) + " s";
         LastPeakMb = oc.PeakWorkingSetMb;
+        AppState.LastCarriers = $"fa=[{oc.CarriersUsed.Fa[0]:R}, {oc.CarriersUsed.Fa[1]:R}] fb=[{oc.CarriersUsed.Fb[0]:R}, {oc.CarriersUsed.Fb[1]:R}] ({oc.Mode})";
+        AppState.LastResult = $"{it.Name}: power {st.PowerD:+0.000;-0.000} D, astig {st.AstigRmsNm:F1} nm, rms {st.RmsNm:F1} nm, PV {st.PvUm:F3} um, {oc.Seconds:F1} s, peak {oc.PeakWorkingSetMb:F0} MB ({oc.Mode})";
+        AppLog.Info("processed " + AppState.LastResult);
         cache.RemoveAll(c => c.path == it.Path); cache.Add((it.Path, oc)); while (cache.Count > CacheSize) cache.RemoveAt(0);
         if (SelectedFile == null || SelectedFile == it || Files.Count(f => f.Status == "done") == 1) { if (SelectedFile != it) SelectedFile = it; else ShowOutcome(oc); }
     }
@@ -275,6 +279,7 @@ public partial class OfflineViewModel : ObservableObject
         ExportMessage = "Exporting…"; main.Settings.LastExportFolder = ExportFolder; main.Settings.Save();
         await Task.Run(() => { try { files = ResultExporter.Export(oc, par, o, folder, null, (f, r) => disp.Invoke(() => SavePng(f, oc)), zr); } catch (Exception e) { err = e.Message; } });
         ExportMessage = err != null ? "Export failed: " + err : $"Exported {files.Count} file(s) to {folder}\n" + string.Join("\n", files.Select(System.IO.Path.GetFileName));
+        if (err != null) AppLog.Error("export failed: " + err); else AppLog.Info($"export: {files.Count} file(s) to {folder} ({(filtered ? "Zernike-filtered" : "raw")} OPD)");
         Processor.TrimProcessMemory(); return ExportMessage;
     }
 

@@ -13,11 +13,12 @@ public class SessionTests
     public void Session_without_reference_matches_golden_and_reports_peak_memory()
     {
         using var s = new ReconSession { Par = fx.Par, Calibration = fx.Calib };
+        double baseMb = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / 1048576.0;   // the shared test host already holds other tests' cached results
         var oc = s.ProcessFile(P("convex_2_img"));
         Assert.True(GoldenFixture.RmsDiffNm(oc.Result.Opd, fx.GoldenOpd("convex_2_img"), 1504, out _, out _, out _) < 5);
         Assert.Equal("without reference", oc.Mode); Assert.Contains(oc.Warnings, w => w.Contains("static system"));
-        Console.WriteLine($"PEAKMEM working set {oc.PeakWorkingSetMb:F0} MB, private {oc.PeakPrivateMb:F0} MB, {oc.Seconds:F2} s");
-        Assert.InRange(oc.PeakWorkingSetMb, 50, 2500);
+        Console.WriteLine($"PEAKMEM working set {oc.PeakWorkingSetMb:F0} MB (host before the frame: {baseMb:F0} MB), private {oc.PeakPrivateMb:F0} MB, {oc.Seconds:F2} s");
+        Assert.True(oc.PeakWorkingSetMb - baseMb < 1000, $"one frame raised the working set by {oc.PeakWorkingSetMb - baseMb:F0} MB (limit 1000 MB; measured ~380 MB in a fresh process)");
     }
 
     [Fact]

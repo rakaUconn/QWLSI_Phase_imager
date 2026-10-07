@@ -65,8 +65,8 @@ public partial class CalibrationViewModel : ObservableObject
             catch (Exception e) { err = e.Message; }
         });
         main.IsBusy = false; ProgressText = ""; Processor.TrimProcessMemory();
-        if (err != null || c == null) { main.StatusMessage = "Calibration failed: " + err; return; }
-        candidate = c; HasCandidate = true;
+        if (err != null || c == null) { main.StatusMessage = "Calibration failed: " + err; AppLog.Error("calibration from flat failed: " + err); return; }
+        candidate = c; HasCandidate = true; AppLog.Info($"calibration from flat computed from {files.Count} frame(s): fa=[{c.Fa[0]:R},{c.Fa[1]:R}] fb=[{c.Fb[0]:R},{c.Fb[1]:R}]");
         var cur = main.Current;
         NewCarriers = $"fa = [{c.Fa[0].ToString("F9", Inv)}, {c.Fa[1].ToString("F9", Inv)}]   fb = [{c.Fb[0].ToString("F9", Inv)}, {c.Fb[1].ToString("F9", Inv)}]  cyc/px   (from {files.Count} frame(s))";
         Diagnostics = (dg != null ? $"Residual of the phase-plane fit: {dg.PlaneFitResidualRad[0]:F3} / {dg.PlaneFitResidualRad[1]:F3} rad rms (a / b) — non-planar part of the flat-frame wavefront.\nLast carrier update: {dg.LastUpdateCyclesPerPx[0]:E1} / {dg.LastUpdateCyclesPerPx[1]:E1} cyc/px (converged when ≲1e-8).\n" : "")

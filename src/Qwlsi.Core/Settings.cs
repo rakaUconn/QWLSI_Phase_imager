@@ -51,7 +51,7 @@ public sealed class AppSettings
     public int[] ZernikeRemovedJ { get; set; } = new[] { 0, 1, 2 };
     public bool ExportFilteredOpd { get; set; }
 
-    public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "QwlsiApp");
+    public static string Dir => Environment.GetEnvironmentVariable("QWLSI_APPDATA") is { Length: > 0 } d ? d : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "QwlsiApp");
     public static string FilePath => Path.Combine(Dir, "settings.json");
     static readonly JsonSerializerOptions Js = new() { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
 

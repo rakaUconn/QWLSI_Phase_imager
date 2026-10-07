@@ -13,7 +13,7 @@
     <AssemblyName>QwlsiApp</AssemblyName>
     <RootNamespace>Qwlsi.App</RootNamespace>
     <ApplicationIcon></ApplicationIcon>
-    <Version>0.1.0</Version>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>

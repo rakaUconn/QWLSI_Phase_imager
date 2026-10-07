@@ -7,7 +7,7 @@ public partial class MainWindow : Window
 {
     public MainWindow()
     {
-        InitializeComponent();
+        InitializeComponent(); Title = "QWLSI single-frame wavefront " + AppInfo.Version;
         DataContextChanged += (_, _) => Wire3D();
     }
 
@@ -25,6 +25,8 @@ public partial class MainWindow : Window
         s.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(s.Software) && View3D.IsSoftware != s.Software) { View3D.UseEffectsManager(s.Software); if (s.Mesh != null) View3D.SetScene(s.Mesh, s.Options, false); } };
         View3D.RendererFallback += msg => s.NotifyFallback(msg);
     }
+
+    void OnAbout(object sender, RoutedEventArgs e) { new AboutWindow(DataContext as MainViewModel) { Owner = this }.ShowDialog(); }
 
     void OnDropFiles(object sender, DragEventArgs e)
     {

@@ -361,7 +361,8 @@
         <Border Grid.Row="1" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="10,4">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Button Grid.RowSpan="2" Grid.Column="2" Content="About / diagnostics" Click="OnAbout" Padding="8,2" Margin="12,0,0,0" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding CalibrationText}" Style="{StaticResource Mono}" FontSize="11" TextTrimming="CharacterEllipsis" Grid.ColumnSpan="2"/>
                 <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="12" TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding MemoryText}" Style="{StaticResource Mono}" FontSize="11" Foreground="#555"/>

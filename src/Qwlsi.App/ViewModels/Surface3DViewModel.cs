@@ -99,5 +99,5 @@ public partial class Surface3DViewModel : ObservableObject
         var dlg = new SaveFileDialog { Filter = "PNG|*.png", FileName = (outcome != null ? Path.GetFileNameWithoutExtension(outcome.File) : "surface") + "_3d.png" }; if (dlg.ShowDialog() != true) return;
         ScreenshotRequested?.Invoke(dlg.FileName);
     }
-    public void NotifyFallback(string msg) { Software = true; Info = msg + "\n" + Info; }
+    public void NotifyFallback(string msg) { Software = true; Info = msg + "\n" + Info; AppLog.Warn("3-D renderer fallback: " + msg); }
 }
