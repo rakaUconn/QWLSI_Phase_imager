@@ -172,17 +172,25 @@ public static class SummaryCsv
 /// <summary>Writes the selected exports of one result + always a sidecar JSON with every parameter used.</summary>
 public static class ResultExporter
 {
-    public static List<string> Export(ReconOutcome oc, QwlsiParams par, ExportOptions o, string outDir, string? baseName = null, Action<string, ReconResult>? pngHook = null)
+    public static List<string> Export(ReconOutcome oc, QwlsiParams par, ExportOptions o, string outDir, string? baseName = null, Action<string, ReconResult>? pngHook = null, ZernikeRemoval? zr = null)
     {
-        var r = oc.Result; int M = r.M; var files = new List<string>(); Directory.CreateDirectory(outDir);
+        var r = oc.Result; int M = r.M; string tag = "OPD";
+        if (zr != null)   // export the FILTERED map; the raw result object is not modified
+        {
+            tag = "OPD_filtered";
+            r = new ReconResult { Opd = zr.Filtered, Intensity = r.Intensity, Mask = r.Mask, M = r.M, Solve = r.Solve, BlackLevel = r.BlackLevel, TimingsMs = r.TimingsMs, Stats = Zernike.Report(zr.Filtered, r.Mask, r.M, par.PitchM) };
+            oc = new ReconOutcome { File = oc.File, Mode = oc.Mode + ", Zernike terms removed", Result = r, Seconds = oc.Seconds, PeakWorkingSetMb = oc.PeakWorkingSetMb, PeakPrivateMb = oc.PeakPrivateMb, CarriersUsed = oc.CarriersUsed, SystemWavefrontFile = oc.SystemWavefrontFile, ReferenceFile = oc.ReferenceFile, Width = oc.Width, Warnings = oc.Warnings };
+        } var files = new List<string>(); Directory.CreateDirectory(outDir);
         baseName ??= Path.GetFileNameWithoutExtension(oc.File); string bp = Path.Combine(outDir, baseName); var mo = o.Matrix;
         double sc = Writers.UnitScale(mo.Unit, par.Lambda); string un = Writers.UnitName(mo.Unit); string ext = mo.Delim == Delimiter.Comma ? ".csv" : ".txt";
         var hdr = HeaderLines(oc, par, mo);
+        if (zr != null) { hdr.Add($"zernike removal: OSA/ANSI to order {zr.Fit.Order}, joint masked least squares, {zr.Fit.Convention}"); hdr.Add("zernike removed: " + zr.Description); hdr.Add($"rms before/after: {zr.RmsBeforeM * 1e9:F2} / {zr.RmsAfterM * 1e9:F2} nm; PV before/after: {zr.PvBeforeM * 1e6:F4} / {zr.PvAfterM * 1e6:F4} um"); }
+        else hdr.Add("zernike removal: none (raw OPD, piston removed by the solver)");
         void Add(string f) => files.Add(f);
 
         if (o.MatrixTxt)
         {
-            if (o.Opd) { var f = $"{bp}_OPD_{un}{ext}"; Writers.WriteMatrixText(f, r.Opd, M, M, sc, mo, hdr.Append($"quantity: OPD [{un}], rows = image rows, outside pupil = {(mo.OutsideAsZero ? "0" : "NaN")}")); Add(f); }
+            if (o.Opd) { var f = $"{bp}_{tag}_{un}{ext}"; Writers.WriteMatrixText(f, r.Opd, M, M, sc, mo, hdr.Append($"quantity: {tag} [{un}], rows = image rows, outside pupil = {(mo.OutsideAsZero ? "0" : "NaN")}")); Add(f); }
             if (o.Intensity) { var f = $"{bp}_intensity{ext}"; Writers.WriteMatrixText(f, r.Intensity, M, M, 1, mo, hdr.Append("quantity: normalised intensity (p95 inside pupil = 1)"), applyScale: false); Add(f); }
             if (o.Mask) { var f = $"{bp}_mask{ext}"; Writers.WriteMaskText(f, r.Mask, M, M, mo, hdr.Append("quantity: pupil mask (1 = valid)")); Add(f); }
             if (o.Field)
@@ -195,10 +203,10 @@ public static class ResultExporter
                 Writers.WriteMatrixText($"{bp}_{n2}{ext}", b, M, M, 1, mf, hdr.Append("quantity: " + n2), applyScale: false); Add($"{bp}_{n2}{ext}");
             }
         }
-        if (o.XyzTxt && o.Opd) { var f = $"{bp}_OPD_xyz_{un}{ext}"; Writers.WriteXyz(f, r.Opd, r.Mask, M, par.PitchM, sc, mo, o.XyzDropMasked, hdr); Add(f); }
+        if (o.XyzTxt && o.Opd) { var f = $"{bp}_{tag}_xyz_{un}{ext}"; Writers.WriteXyz(f, r.Opd, r.Mask, M, par.PitchM, sc, mo, o.XyzDropMasked, hdr); Add(f); }
         if (o.Npy)
         {
-            if (o.Opd) { Writers.WriteNpyF32($"{bp}_OPD_m.npy", r.Opd, M, M); Add($"{bp}_OPD_m.npy"); }
+            if (o.Opd) { Writers.WriteNpyF32($"{bp}_{tag}_m.npy", r.Opd, M, M); Add($"{bp}_{tag}_m.npy"); }
             if (o.Intensity) { Writers.WriteNpyF32($"{bp}_intensity.npy", r.Intensity, M, M); Add($"{bp}_intensity.npy"); }
             if (o.Mask) { Writers.WriteNpyU8($"{bp}_mask.npy", r.Mask, M, M); Add($"{bp}_mask.npy"); }
             if (o.Field) { Writers.WriteNpyC64($"{bp}_field.npy", r.BuildField(par.Lambda), M, M); Add($"{bp}_field.npy"); }
@@ -211,13 +219,14 @@ public static class ResultExporter
                 if (o.Mask || o.Opd) m.UInt8("mask", r.Mask, M, M);
                 if (o.Intensity) m.Single("intensity", r.Intensity, M, M);
                 if (o.Field) m.ComplexSingle("field", r.BuildField(par.Lambda), M, M);
+                if (zr != null) m.Double("zernike_removed_ansi_j", zr.Removed.Select((b, i) => (b, i)).Where(x => x.b).Select(x => (double)x.i).ToArray());
                 m.Double("pitch_m", par.PitchM); m.Double("lambda_m", par.Lambda); m.Double("carrier_a", oc.CarriersUsed.Fa); m.Double("carrier_b", oc.CarriersUsed.Fb);
             }
             Add(f);
         }
         if (o.Tiff32)
         {
-            if (o.Opd) { var f = $"{bp}_OPD_{un}.tif"; Writers.WriteTiffF32(f, r.Opd, M, M, sc); Add(f); }
+            if (o.Opd) { var f = $"{bp}_{tag}_{un}.tif"; Writers.WriteTiffF32(f, r.Opd, M, M, sc); Add(f); }
             if (o.Intensity) { var f = $"{bp}_intensity.tif"; Writers.WriteTiffF32(f, r.Intensity, M, M); Add(f); }
         }
         if (o.Png && pngHook != null) { var f = $"{bp}_preview.png"; pngHook(f, r); Add(f); }
@@ -229,6 +238,14 @@ public static class ResultExporter
             grid = new { rows = M, cols = M, orientation = "row = image row (y down), column = x" },
             units = new { matrix_txt = un, npy = "m (OPD)", mat = "m (OPD_m)", tiff32 = un }, delimiter = mo.Delim.ToString(), decimals = mo.Decimals, outside_pupil = mo.OutsideAsZero ? "0" : "NaN",
             stats = r.Stats, solver = new { cg_iterations = r.Solve.CgIterations, residual_rad = r.Solve.ResidualRad }, seconds = oc.Seconds, peak_working_set_mb = oc.PeakWorkingSetMb,
+            zernike_removal = zr == null ? null : new
+            {
+                convention = zr.Fit.Convention, fit_order = zr.Fit.Order, fit = "joint masked least squares over the mask-fitted circle (centroid, radius = sqrt(area/pi)), pixels with rho<=1",
+                circle = new { cx_px = zr.Fit.Cx, cy_px = zr.Fit.Cy, radius_px = zr.Fit.RadiusPx, radius_mm = zr.Fit.RadiusM * 1e3 },
+                removed = Enumerable.Range(0, zr.Removed.Length).Where(j => zr.Removed[j]).Select(j => new { ansi_j = j, noll_j = zr.Fit.Terms[j].Noll, n = zr.Fit.Terms[j].N, m = zr.Fit.Terms[j].M, name = zr.Fit.Terms[j].Name, coefficient_nm = zr.Fit.Coeff[j] * 1e9, diopters = double.IsNaN(zr.Fit.Diopters(j)) ? (double?)null : zr.Fit.Diopters(j) }).ToArray(),
+                rms_before_nm = zr.RmsBeforeM * 1e9, rms_after_nm = zr.RmsAfterM * 1e9, pv_before_um = zr.PvBeforeM * 1e6, pv_after_um = zr.PvAfterM * 1e6,
+                warnings = ZernikeTools.Warnings(zr.Removed),
+            },
             export_options = o, files = files.Select(Path.GetFileName).ToArray(),
         };
         var sf = bp + "_export.json"; File.WriteAllText(sf, JsonSerializer.Serialize(side, new JsonSerializerOptions { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } })); files.Add(sf);

@@ -29,4 +29,8 @@
     <ProjectReference Include="..\Qwlsi.Camera\Qwlsi.Camera.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="data\python_zernike_order10.json" CopyToOutputDirectory="PreserveNewest" Link="data\python_zernike_order10.json" />
+  </ItemGroup>
+
 </Project>
