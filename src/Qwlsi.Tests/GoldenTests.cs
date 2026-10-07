@@ -57,6 +57,25 @@ public class GoldenTests
     }
 
     [Theory, MemberData(nameof(AllFrames))]
+    public void Complex_field_matches_python(string name)
+    {
+        // relative L2 of (U - U_python) over sum |U_python|^2 ; measured 0.001-0.009 % on all frames
+        var r = fx.Recon(name); var g = fx.GoldenField(name); long n = (long)fx.Par.M * fx.Par.M; double num = 0, den = 0;
+        for (long i = 0; i < n; i++)
+        {
+            double dr = r.Field[2 * i] - g[2 * i], di = r.Field[2 * i + 1] - g[2 * i + 1]; num += dr * dr + di * di;
+            den += g[2 * i] * (double)g[2 * i] + g[2 * i + 1] * (double)g[2 * i + 1];
+        }
+        double rel = Math.Sqrt(num / den);
+        Assert.True(rel <= 5e-4, $"{name}: complex field relative L2 difference {rel * 100:F5} % (limit 0.05 %)");
+    }
+
+    /// <summary>
+    /// SANITY CHECK only (not an acceptance criterion): |U|^2 vs the smoothed raw frame. The smoothing is not defined in HANDOFF, so the
+    /// result depends on it (see sigma note below). The real acceptance criteria for intensity/field are the Python-golden tests above
+    /// (Intensity_matches_python_within_0_01_percent and the complex-field comparison).
+    /// </summary>
+    [Theory, MemberData(nameof(AllFrames))]
     public void Intensity_correlates_with_smoothed_raw_frame(string name)
     {
         // "smoothed raw frame" is not defined in HANDOFF; chosen here as a Gaussian of sigma = 3 sensor px (the smallest that removes the 3 px carrier
