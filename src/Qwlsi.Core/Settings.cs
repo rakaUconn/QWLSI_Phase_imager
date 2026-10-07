@@ -46,6 +46,10 @@ public sealed class AppSettings
     public string Colormap { get; set; } = "Viridis";
     public ExportOptions Export { get; set; } = new();
     public bool AutoExportBatch { get; set; }
+    /// <summary>Zernike removal (OSA/ANSI, order 10): orientation flags, ticked terms (ANSI j) and whether exports use the filtered OPD.</summary>
+    public ZernikeOrientation ZernikeOrientation { get; set; } = new();
+    public int[] ZernikeRemovedJ { get; set; } = new[] { 0, 1, 2 };
+    public bool ExportFilteredOpd { get; set; }
 
     public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "QwlsiApp");
     public static string FilePath => Path.Combine(Dir, "settings.json");

@@ -150,12 +150,12 @@ public partial class OfflineViewModel : ObservableObject
         if (items.Count == 0) { main.StatusMessage = "Open a frame or folder first."; return; }
         if (main.IsBusy) return;
         if (WithReference && (string.IsNullOrEmpty(ReferencePath) || !File.Exists(ReferencePath))) { main.StatusMessage = "With-reference mode: choose a reference frame."; return; }
-        if (!WithReference && main.Current == null) { main.AutoFindCalibration(CurrentImageFolder, true); if (main.Current == null) { main.StatusMessage = "No calibration loaded: use the Calibration tab (browse / auto-find / make from a flat frame)."; main.SelectedTab = 1; return; } }
+        if (!WithReference && main.Current == null) { main.AutoFindCalibration(CurrentImageFolder, true); if (main.Current == null) { main.StatusMessage = "No calibration loaded: use the Calibration tab (browse / auto-find / make from a flat frame)."; main.SelectedTab = 3; return; } }
         main.IsBusy = true; IsRunning = true; CanCancel = true; cts = new CancellationTokenSource(); var ct = cts.Token;
         foreach (var it in items) { it.Status = "queued"; it.Power = it.Rms = it.Seconds = ""; }
         summary.Clear(); main.Settings.Save();
         var session = new ReconSession { Par = main.Settings.Params.Clone(), Calibration = main.Current, CalibrationPath = main.CurrentPath, ReferencePath = WithReference ? ReferencePath : null, SystemWavefrontPath = WithReference ? null : SystemWavefrontPath };
-        var paths = items.Select(i => i.Path).ToList(); var dispatcher = Application.Current.Dispatcher; var export = Export; bool auto = main.Settings.AutoExportBatch; string folder = EffectiveExportFolder();
+        bool filtered = main.Settings.ExportFilteredOpd; var zsel = main.ZernikeVm.Selection(); var paths = items.Select(i => i.Path).ToList(); var dispatcher = Application.Current.Dispatcher; var export = Export; bool auto = main.Settings.AutoExportBatch; string folder = EffectiveExportFolder();
         var prog = new Progress<BatchProgress>(bp =>
         {
             var it = items[bp.Index]; if (bp.State == "processing") it.Status = bp.FileFraction <= 0 && WithReference && bp.Index == 0 ? "building reference…" : $"processing {bp.FileFraction * 100:F0} %";
@@ -167,7 +167,7 @@ public partial class OfflineViewModel : ObservableObject
             rows = await Task.Run(() => BatchRunner.Run(session, paths, oc =>
             {
                 var it = items[paths.IndexOf(oc.File)];
-                if (auto) { try { ResultExporter.Export(oc, session.Par, export, folder, null, (f, r) => dispatcher.Invoke(() => SavePng(f, oc))); } catch (Exception e) { dispatcher.Invoke(() => ExportMessage = "Auto-export failed: " + e.Message); } }
+                if (auto) { try { var zr = filtered ? main.ZernikeVm.MakeFor(oc, zsel, session.Par) : null; ResultExporter.Export(oc, session.Par, export, folder, null, (f, r) => dispatcher.Invoke(() => SavePng(f, oc)), zr); } catch (Exception e) { dispatcher.Invoke(() => ExportMessage = "Auto-export failed: " + e.Message); } }
                 dispatcher.Invoke(() => OnResult(it, oc));
             }, (f, e) => dispatcher.Invoke(() => { var it = items[paths.IndexOf(f)]; it.Status = "error: " + e.Message; errors.Add(it.Name + ": " + e.Message); }), prog, ct));
         }
@@ -193,7 +193,7 @@ public partial class OfflineViewModel : ObservableObject
     void ShowCached(FileItem it)
     {
         var c = cache.FirstOrDefault(x => x.path == it.Path); if (c.oc != null) { ShowOutcome(c.oc); return; }
-        shown = null; Spec = null; StatsText = it.Status == "done" ? "Result no longer cached (only the last " + CacheSize + " are kept in memory to save RAM) — press 'Process selected' to recompute." : "Not processed yet."; WarningText = ""; HasWarning = false; InfoText = "";
+        shown = null; Spec = null; ResultShown?.Invoke(null); StatsText = it.Status == "done" ? "Result no longer cached (only the last " + CacheSize + " are kept in memory to save RAM) — press 'Process selected' to recompute." : "Not processed yet."; WarningText = ""; HasWarning = false; InfoText = "";
     }
 
     void ShowOutcome(ReconOutcome oc)
@@ -208,7 +208,7 @@ public partial class OfflineViewModel : ObservableObject
         InfoText = $"Mode: {oc.Mode}\nλ = {main.Settings.Params.Lambda * 1e9:G6} nm, grid {oc.Result.M}×{oc.Result.M}, pitch {main.Settings.Params.PitchM * 1e6:F3} µm\nCarriers fa = [{oc.CarriersUsed.Fa[0]:F6}, {oc.CarriersUsed.Fa[1]:F6}]  fb = [{oc.CarriersUsed.Fb[0]:F6}, {oc.CarriersUsed.Fb[1]:F6}]\n"
             + $"CG iterations {string.Join("/", oc.Result.Solve.CgIterations)}, LS residual {oc.Result.Solve.ResidualRad[0]:F3}/{oc.Result.Solve.ResidualRad[1]:F3} rad\nTime {oc.Seconds:F2} s (solve {t.GetValueOrDefault("solve") / 1000:F2} s), peak memory {oc.PeakWorkingSetMb:F0} MB";
         WarningText = string.Join("\n", oc.Warnings); HasWarning = oc.Warnings.Count > 0;
-        RefreshMap(true);
+        RefreshMap(true); ResultShown?.Invoke(oc);
     }
 
     // ------------------------------------------------------------------------------------------------ display
@@ -266,7 +266,7 @@ public partial class OfflineViewModel : ObservableObject
         if (shown == null) { ExportMessage = "Nothing to export: process a frame first."; return; }
         string folder = EffectiveExportFolder(); var oc = shown; var par = main.Settings.Params.Clone(); var o = Export; var disp = Application.Current.Dispatcher; string? err = null; List<string> files = new();
         ExportMessage = "Exporting…"; main.Settings.LastExportFolder = ExportFolder; main.Settings.Save();
-        await Task.Run(() => { try { files = ResultExporter.Export(oc, par, o, folder, null, (f, r) => disp.Invoke(() => SavePng(f, oc))); } catch (Exception e) { err = e.Message; } });
+        await Task.Run(() => { try { var zr = main.Settings.ExportFilteredOpd && main.ZernikeVm.Current != null ? main.ZernikeVm.Current : null; files = ResultExporter.Export(oc, par, o, folder, null, (f, r) => disp.Invoke(() => SavePng(f, oc)), zr); } catch (Exception e) { err = e.Message; } });
         ExportMessage = err != null ? "Export failed: " + err : $"Exported {files.Count} file(s) to {folder}\n" + string.Join("\n", files.Select(System.IO.Path.GetFileName));
     }
 
@@ -294,4 +294,6 @@ public partial class OfflineViewModel : ObservableObject
 
     // used by the self-test
     public ReconOutcome? Shown => shown;
+    /// <summary>Raised on the UI thread whenever a different result is displayed (Zernike / 3D tabs follow it).</summary>
+    public event Action<ReconOutcome?>? ResultShown;
 }

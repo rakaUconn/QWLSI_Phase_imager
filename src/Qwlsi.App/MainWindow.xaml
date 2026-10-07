@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="clr-namespace:Qwlsi.App.Controls"
+        xmlns:vm="clr-namespace:Qwlsi.App.ViewModels"
         Title="QWLSI single-frame wavefront — offline" Width="1500" Height="920" MinWidth="1100" MinHeight="700" Background="White">
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -109,6 +110,7 @@
                                     </Grid>
                                     <CheckBox Content="'#' comment header (λ, pitch, calibration, mode, date)" IsChecked="{Binding Export.Matrix.Header}" Margin="0,6,0,0"/>
                                     <CheckBox Content="XYZ: drop pixels outside the pupil" IsChecked="{Binding Export.XyzDropMasked}"/>
+                                    <CheckBox Content="export OPD with the Zernike terms of the Zernike tab removed (recorded in header + sidecar)" IsChecked="{Binding DataContext.Settings.ExportFilteredOpd, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,4,0,0"/>
                                     <TextBlock Text="Output folder" Margin="0,8,0,2" FontWeight="SemiBold"/>
                                     <DockPanel><Button DockPanel.Dock="Right" Content="…" Padding="6,0" Command="{Binding BrowseExportFolderCommand}" Margin="4,0,0,0"/><TextBox Text="{Binding ExportFolder}" ToolTip="empty = &lt;image folder&gt;\qwlsi_out"/></DockPanel>
                                     <CheckBox Content="auto-export every frame during batch (+ summary.csv)" IsChecked="{Binding DataContext.Settings.AutoExportBatch, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,6,0,4"/>
@@ -123,6 +125,120 @@
                             </GroupBox>
                         </StackPanel>
                     </ScrollViewer>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================================================ ZERNIKE -->
+            <TabItem Header="Zernike" FontSize="14">
+                <Grid Margin="8" DataContext="{Binding ZernikeVm}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="400"/><ColumnDefinition Width="*"/><ColumnDefinition Width="470"/></Grid.ColumnDefinitions>
+                    <DockPanel Grid.Column="0" Margin="0,0,10,0">
+                        <GroupBox DockPanel.Dock="Top" Header="Terms to remove (OSA/ANSI, order ≤ 10)">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <TextBlock Text="Preset" Style="{StaticResource Label}"/>
+                                    <ComboBox Width="150" ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}"/>
+                                    <TextBlock Text="  N =" Style="{StaticResource Label}"/>
+                                    <ComboBox Width="55" ItemsSource="{Binding Orders}" SelectedItem="{Binding UpToOrder}"/>
+                                </StackPanel>
+                                <WrapPanel>
+                                    <CheckBox Content="flip x" IsChecked="{Binding FlipX}" Margin="0,2,12,2" ToolTip="default: x to the right"/>
+                                    <CheckBox Content="flip y (image rows, y down)" IsChecked="{Binding FlipY}" Margin="0,2,12,2" ToolTip="default: y up (image rows flipped); theta counter-clockwise from +x"/>
+                                    <Button Content="Expand" Command="{Binding ExpandAllCommand}" Padding="6,0" MinHeight="20"/><Button Content="Collapse" Command="{Binding CollapseAllCommand}" Padding="6,0" MinHeight="20"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </GroupBox>
+                        <TreeView ItemsSource="{Binding Groups}" BorderBrush="{StaticResource Border}">
+                            <TreeView.ItemContainerStyle><Style TargetType="TreeViewItem"><Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/></Style></TreeView.ItemContainerStyle>
+                            <TreeView.Resources>
+                                <HierarchicalDataTemplate DataType="{x:Type vm:ZGroup}" ItemsSource="{Binding Children}">
+                                    <CheckBox IsChecked="{Binding IsChecked}" IsThreeState="True" Content="{Binding Header}" FontWeight="SemiBold"/>
+                                </HierarchicalDataTemplate>
+                                <DataTemplate DataType="{x:Type vm:ZNode}">
+                                    <CheckBox IsChecked="{Binding IsChecked}"><TextBlock Text="{Binding Label}" Style="{StaticResource Mono}"/></CheckBox>
+                                </DataTemplate>
+                            </TreeView.Resources>
+                        </TreeView>
+                    </DockPanel>
+                    <DockPanel Grid.Column="1">
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                            <TextBlock Text="Show" Style="{StaticResource Label}"/><ComboBox Width="110" ItemsSource="{Binding Views}" SelectedItem="{Binding View}"/>
+                            <TextBlock Text="   (the raw result is never modified)" Style="{StaticResource Label}" FontSize="11"/>
+                        </StackPanel>
+                        <Border DockPanel.Dock="Top" Background="{StaticResource WarnBg}" BorderBrush="#E0B84A" BorderThickness="1" Padding="8,5" Margin="0,0,0,6">
+                            <Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasWarning}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
+                            <TextBlock Text="{Binding WarningText}" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"/>
+                        </Border>
+                        <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                            <TextBlock Text="{Binding StatsText}" Style="{StaticResource Mono}" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding FitText}" Style="{StaticResource Mono}" TextWrapping="Wrap" Foreground="#555" FontSize="11" Margin="0,6,0,0"/>
+                        </StackPanel>
+                        <c:MapView Spec="{Binding Spec}"/>
+                    </DockPanel>
+                    <GroupBox Grid.Column="2" Header="Coefficients (fit of the raw OPD)" Margin="10,0,0,0">
+                        <ListView ItemsSource="{Binding Rows}" FontSize="12" BorderThickness="0">
+                            <ListView.View><GridView>
+                                <GridViewColumn Header="j" Width="30" DisplayMemberBinding="{Binding J}"/>
+                                <GridViewColumn Header="Noll" Width="38" DisplayMemberBinding="{Binding Noll}"/>
+                                <GridViewColumn Header="n" Width="26" DisplayMemberBinding="{Binding N}"/>
+                                <GridViewColumn Header="m" Width="28" DisplayMemberBinding="{Binding M}"/>
+                                <GridViewColumn Header="Name" Width="150" DisplayMemberBinding="{Binding Name}"/>
+                                <GridViewColumn Header="c [nm]" Width="68" DisplayMemberBinding="{Binding Nm}"/>
+                                <GridViewColumn Header="[D]" Width="52" DisplayMemberBinding="{Binding Diopters}"/>
+                                <GridViewColumn Header="" Width="70" DisplayMemberBinding="{Binding Removed}"/>
+                            </GridView></ListView.View>
+                        </ListView>
+                    </GroupBox>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================================================ 3D -->
+            <TabItem Header="3D" FontSize="14">
+                <Grid Margin="8" DataContext="{Binding Surface3D}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="340"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <ScrollViewer Grid.Column="0" Margin="0,0,10,0" VerticalScrollBarVisibility="Auto"><StackPanel>
+                        <GroupBox Header="Surface">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                    <TextBlock Text="Map" Style="{StaticResource Label}" Margin="0,0,8,4"/><ComboBox Grid.Column="1" ItemsSource="{Binding Sources}" SelectedItem="{Binding Source}" Margin="0,0,0,4"/>
+                                    <TextBlock Grid.Row="1" Text="Mesh" Style="{StaticResource Label}"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Resolutions}" SelectedItem="{Binding Resolution}"/>
+                                </Grid>
+                                <TextBlock Text="512² / 256² = area-weighted block average of the 1504² map; Full = every pixel (slow)." TextWrapping="Wrap" Foreground="#666" FontSize="11" Margin="0,4,0,0"/>
+                                <TextBlock Text="Height exaggeration" Margin="0,8,0,0" FontWeight="SemiBold"/>
+                                <Slider Minimum="0" Maximum="5" Value="{Binding ExaggerationLog}" TickFrequency="1"/>
+                                <DockPanel><Button DockPanel.Dock="Right" Content="Auto" Command="{Binding AutoExaggerationCommand}" Padding="8,0" MinHeight="20"/><TextBlock Text="{Binding ExaggerationText}" FontSize="11" Foreground="#555" TextWrapping="Wrap"/></DockPanel>
+                                <CheckBox Content="wireframe" IsChecked="{Binding Wireframe}" Margin="0,8,0,0"/>
+                                <CheckBox Content="axes (mm, nm)" IsChecked="{Binding ShowAxes}"/>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="Colour scale">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                    <TextBlock Text="Range" Style="{StaticResource Label}" Margin="0,0,8,4"/><ComboBox Grid.Column="1" ItemsSource="{Binding ColorModes}" SelectedItem="{Binding ColorMode}" Margin="0,0,0,4"/>
+                                    <TextBlock Grid.Row="1" Text="Colours" Style="{StaticResource Label}"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Colormaps}" SelectedItem="{Binding Cmap}"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0"><TextBlock Text="manual min / max [nm]" Style="{StaticResource Label}"/><TextBox Width="62" Text="{Binding ManualMin, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text=" – " VerticalAlignment="Center"/><TextBox Width="62" Text="{Binding ManualMax, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
+                                <TextBlock Text="percentile clip: low / high" Margin="0,6,0,0"/>
+                                <StackPanel Orientation="Horizontal"><TextBox Width="50" Text="{Binding PctLo, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text=" % … " VerticalAlignment="Center"/><TextBox Width="50" Text="{Binding PctHi, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text=" %" VerticalAlignment="Center"/></StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="View">
+                            <StackPanel>
+                                <WrapPanel>
+                                    <Button Content="Isometric" Command="{Binding SetViewCommand}" CommandParameter="Isometric"/><Button Content="Top" Command="{Binding SetViewCommand}" CommandParameter="Top"/>
+                                    <Button Content="Front" Command="{Binding SetViewCommand}" CommandParameter="Front"/><Button Content="Side" Command="{Binding SetViewCommand}" CommandParameter="Side"/>
+                                    <Button Content="Back" Command="{Binding SetViewCommand}" CommandParameter="Back"/>
+                                </WrapPanel>
+                                <TextBlock Text="mouse: left-drag rotate, right-drag pan, wheel zoom" Foreground="#666" FontSize="11" Margin="0,4,0,0"/>
+                                <CheckBox Content="software rendering (WARP)" IsChecked="{Binding Software}" Margin="0,8,0,0" ToolTip="use if the GPU / driver cannot render the 3-D view; switches automatically on a render failure"/>
+                                <Button Content="Save PNG screenshot…" Command="{Binding ScreenshotCommand}" Margin="0,8,0,0" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </GroupBox>
+                        <TextBlock Text="{Binding Info}" Style="{StaticResource Mono}" FontSize="11" Foreground="#555" TextWrapping="Wrap"/>
+                    </StackPanel></ScrollViewer>
+                    <c:Surface3DView x:Name="View3D" Grid.Column="1"/>
                 </Grid>
             </TabItem>
 

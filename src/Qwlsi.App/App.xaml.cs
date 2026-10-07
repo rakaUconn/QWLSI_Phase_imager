@@ -65,6 +65,14 @@ static class SelfTest
             var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32); rtb.Render(fe);
             var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(rtb)); using var fs = File.Create(Path.Combine(outDir, name + ".png")); enc.Save(fs);
         }
+        void ShotScreen(string name)
+        {
+            win.UpdateLayout(); var dpi = VisualTreeHelper.GetDpi(win); var fe = (FrameworkElement)win.Content; var p = fe.PointToScreen(new Point(0, 0));
+            int w = (int)(fe.ActualWidth * dpi.DpiScaleX), h = (int)(fe.ActualHeight * dpi.DpiScaleY);
+            using var bmp = new System.Drawing.Bitmap(w, h); using (var g = System.Drawing.Graphics.FromImage(bmp)) g.CopyFromScreen((int)p.X, (int)p.Y, 0, 0, new System.Drawing.Size(w, h));
+            bmp.Save(Path.Combine(outDir, name + ".png"), System.Drawing.Imaging.ImageFormat.Png);
+        }
+        string Mem(string tag) { var p = System.Diagnostics.Process.GetCurrentProcess(); p.Refresh(); return $"MEM {tag}: WS {p.WorkingSet64 / 1048576} MB, private {p.PrivateMemorySize64 / 1048576} MB, managed {GC.GetTotalMemory(false) / 1048576} MB"; }
         Task Idle() => win.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task;
         try
         {
@@ -84,11 +92,28 @@ static class SelfTest
             }
             vm.Settings.Export.Matrix.Header = false; vm.Offline.ExportFolder = Path.Combine(outDir, "export"); vm.Settings.Export.Intensity = true; vm.Settings.Export.XyzTxt = true; vm.Settings.Export.Npy = true; vm.Settings.Export.Mat = true; vm.Settings.Export.Tiff32 = true; vm.Settings.Export.Png = true;
             await vm.Offline.ExportCurrentCommand.ExecuteAsync(null); await Idle(); log.Add("export: " + vm.Offline.ExportMessage.Replace("\n", " | ")); Shot("05_offline_exported");
-            vm.SelectedTab = 1; await Idle();
+            log.Add(Mem("before zernike tab"));
+            // ---- Zernike tab
+            vm.Offline.ReferencePath = null; vm.Offline.WithReference = false; vm.Offline.SelectedFile = vm.Offline.Files.FirstOrDefault(); await vm.Offline.ProcessSelectedCommand.ExecuteAsync(null); await Idle();
+            vm.SelectedTab = 1; await Task.Delay(1500); await Idle(); Shot("10_zernike_piston_tilt");
+            log.Add("zernike default: " + vm.ZernikeVm.StatsText.Replace("\n", " | "));
+            vm.ZernikeVm.SelectedPreset = "+ astigmatism"; await Task.Delay(1500); await Idle(); Shot("11_zernike_defocus_astig_removed");
+            log.Add("zernike +astig: " + vm.ZernikeVm.StatsText.Replace("\n", " | ") + " || WARN: " + vm.ZernikeVm.WarningText.Replace("\n", " | "));
+            log.Add(Mem("after zernike tab"));
+            // ---- 3-D tab (hardware D3D11 first, then software WARP)
+            vm.ZernikeVm.SelectedPreset = "piston + tilt"; await Task.Delay(1200);
+            vm.SelectedTab = 2; await Task.Delay(3000); await Idle(); ShotScreen("12_3d_isometric"); log.Add(Mem("3D iso (hardware)"));
+            win.View3D.SavePng(Path.Combine(outDir, "12b_3d_viewport_renderbitmap.png")); log.Add("3D: " + vm.Surface3D.Info.Replace("\n", " | ") + " | software=" + win.View3D.IsSoftware);
+            vm.Surface3D.SetViewCommand.Execute("Top"); await Task.Delay(1500); await Idle(); ShotScreen("13_3d_top");
+            vm.Surface3D.SetViewCommand.Execute("Isometric"); vm.Surface3D.Wireframe = true; vm.Surface3D.ExaggerationLog = 3.7; await Task.Delay(1800); await Idle(); ShotScreen("14_3d_wireframe_exaggerated");
+            vm.Surface3D.Wireframe = false; vm.Surface3D.Resolution = Qwlsi.Core.MeshResolution.N256; vm.Surface3D.Software = true; await Task.Delay(4000); await Idle(); ShotScreen("15_3d_software_warp_256"); log.Add(Mem("3D software WARP"));
+            log.Add("3D software: " + vm.Surface3D.Info.Replace("\n", " | ") + " | software=" + win.View3D.IsSoftware);
+            vm.Surface3D.Software = false; vm.Surface3D.Resolution = Qwlsi.Core.MeshResolution.N512; await Task.Delay(1500);
+            vm.SelectedTab = 3; await Idle();
             if (flat != "") { vm.CalibrationVm.FlatFiles.Add(flat); await vm.CalibrationVm.CalibrateCommand.ExecuteAsync(null); await Idle(); }
             vm.CalibrationVm.AutoFindCommand.Execute(null); await Idle(); Shot("06_calibration");
-            vm.SelectedTab = 2; await Idle(); Shot("07_settings");
-            vm.SelectedTab = 3; await Idle(); Shot("08_help");
+            vm.SelectedTab = 4; await Idle(); Shot("07_settings");
+            vm.SelectedTab = 5; await Idle(); Shot("08_help");
             log.Add("peak memory last frame: " + vm.Offline.LastPeakMb.ToString("F0") + " MB");
             var pr = System.Diagnostics.Process.GetCurrentProcess(); pr.Refresh(); string M(long b) => (b / 1048576).ToString();
             log.Add($"idle before GC: WS {M(pr.WorkingSet64)} MB, private {M(pr.PrivateMemorySize64)} MB, managed {M(GC.GetTotalMemory(false))} MB");
