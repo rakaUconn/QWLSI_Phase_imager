@@ -46,8 +46,9 @@ if ($Mode -eq 'Portable') {
     $ip = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir", '/TASKS=desktopicon', "/LOG=$ilog" -Wait -PassThru
     Write-Host ("   installer exit code {0} after {1:N0} s" -f $ip.ExitCode, $sw.Elapsed.TotalSeconds)
     $exe = Join-Path $dir 'QwlsiApp.exe'
-    $lnk = @("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\QWLSI wavefront\QWLSI single-frame wavefront.lnk", [Environment]::GetFolderPath('Desktop') + '\QWLSI single-frame wavefront.lnk')
-    foreach ($l in $lnk) { Write-Host ("   shortcut {0}: {1}" -f (Split-Path $l -Leaf), (Test-Path $l)) }
+    $desk = [Environment]::GetFolderPath('Desktop')
+    $lnk = @("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\QWLSI wavefront\QWLSI single-frame wavefront.lnk", (Join-Path $desk 'QWLSI single-frame wavefront.lnk'))
+    foreach ($l in $lnk) { Write-Host ("   shortcut {0}: {1}" -f $l, (Test-Path $l)) }
     $reg = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'QWLSI*' }
     Write-Host ("   uninstall registry entry: {0}" -f [bool]$reg)
 }
@@ -70,7 +71,7 @@ if ($Mode -eq 'Installer') {
     $un = Join-Path $dir 'unins000.exe'; $up = Start-Process $un -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
     Start-Sleep 3
     Write-Host ("   uninstaller exit code {0}; install folder removed: {1}" -f $up.ExitCode, -not (Test-Path $dir))
-    foreach ($l in $lnk) { Write-Host ("   shortcut {0} removed: {1}" -f (Split-Path $l -Leaf), -not (Test-Path $l)) }
+    foreach ($l in $lnk) { Write-Host ("   shortcut removed ({0}): {1}" -f $l, -not (Test-Path $l)) }
     $reg = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'QWLSI*' }
     Write-Host ("   uninstall registry entry removed: {0}" -f (-not [bool]$reg))
 }

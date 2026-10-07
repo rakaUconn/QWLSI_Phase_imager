@@ -26,7 +26,8 @@ First release. Offline reconstruction of the wavefront (OPD and complex field) f
 9. Piston and tilt are removed (tilt is not absolute in a single frame). The default Zernike convention is y up with θ counter-clockwise; *flip x / flip y* are provided.
 10. The wavelength setting barely changes the OPD (the shear scales with λ); it matters for the complex-field phase.
 11. Uninstalling keeps `%APPDATA%\QwlsiApp` (settings, logs).
-12. Early development builds of the self-test overwrote the developer's own `settings.json`; fixed — the self-test now uses a private folder.
+12. **The self-contained package bundles the .NET 8.0.12 runtime** (the version pinned by the build SDK); later 8.0.x security/servicing releases are not picked up automatically — rebuild with a newer SDK/runtime pack to update.
+13. Early development builds of the self-test overwrote the developer's own `settings.json`; fixed — the self-test now uses a private folder.
 
 ### Fixed during the 1.0 cycle (for reference)
 * 3-D viewport: `NullReferenceException` in Helix's view-box hit test on every click after switching the renderer (software ↔ hardware) — the viewport is now re-created on a renderer change.
