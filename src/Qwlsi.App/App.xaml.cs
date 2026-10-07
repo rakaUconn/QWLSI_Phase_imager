@@ -50,6 +50,17 @@ public partial class App : Application
         };
     }
 
+    /// <summary>
+    /// Helix leaves a FOREGROUND worker thread behind for every viewport / device it created, which keeps the process alive after the last
+    /// window is closed. After a normal WPF shutdown a background watchdog ends the process if it is still running.
+    /// </summary>
+    protected override void OnExit(ExitEventArgs e)
+    {
+        base.OnExit(e);
+        var t = new Thread(() => { Thread.Sleep(2500); Environment.Exit(e.ApplicationExitCode); }) { IsBackground = true, Name = "ExitWatchdog" };
+        t.Start();
+    }
+
     void OnStartup(object sender, StartupEventArgs e)
     {
         var args = e.Args; string? Opt(string n) { int i = Array.IndexOf(args, n); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
@@ -138,6 +149,21 @@ static class SelfTest
                 mouse_event(WHEEL, 0, 0, 120, UIntPtr.Zero); await Task.Delay(300); mouse_event(WHEEL, 0, 0, -120, UIntPtr.Zero); await Task.Delay(300);
                 await Click((int)(o.X + W - 70 * dpi.DpiScaleX), (int)(o.Y + 70 * dpi.DpiScaleY)); await Task.Delay(1200); await Idle(); ShotScreen("12c_3d_after_mouse_interaction");
                 long after = File.Exists(errLog) ? new FileInfo(errLog).Length : 0; log.Add("3D mouse interaction: error log grew by " + (after - before) + " bytes (0 = no exception)");
+            }
+            {   // more states a user can reach before clicking: toggle software rendering, leave the tab and come back, change mesh size
+                win.Activate(); var dpi = VisualTreeHelper.GetDpi(win); string errLog = Path.Combine(Path.GetTempPath(), "qwlsi_error.log");
+                async Task<long> ClickViewport(string tag)
+                {
+                    long b = File.Exists(errLog) ? new FileInfo(errLog).Length : 0; var o = win.View3D.PointToScreen(new Point(0, 0)); double W = win.View3D.ActualWidth * dpi.DpiScaleX, H = win.View3D.ActualHeight * dpi.DpiScaleY;
+                    await Click((int)(o.X + W * 0.5), (int)(o.Y + H * 0.5)); await Drag((int)(o.X + W * 0.5), (int)(o.Y + H * 0.5), (int)(o.X + W * 0.6), (int)(o.Y + H * 0.45), false);
+                    long a = File.Exists(errLog) ? new FileInfo(errLog).Length : 0; log.Add($"3D mouse [{tag}]: error log grew by {a - b} bytes; swallowed so far {Qwlsi.App.Controls.SafeViewport3DX.Swallowed}"); return a - b;
+                }
+                vm.Surface3D.Software = true; await Task.Delay(3000); await Idle(); await ClickViewport("after switching to WARP");
+                vm.Surface3D.Software = false; await Task.Delay(3000); await Idle(); await ClickViewport("after switching back to hardware");
+                vm.SelectedTab = 0; await Task.Delay(800); vm.SelectedTab = 2; await Task.Delay(2500); await Idle(); await ClickViewport("after leaving the tab and returning");
+                vm.Surface3D.Resolution = Qwlsi.Core.MeshResolution.N256; await Task.Delay(2000); await Idle(); await ClickViewport("after changing mesh size");
+                vm.Surface3D.Source = Qwlsi.App.ViewModels.SurfaceSource.ZernikeFiltered; await Task.Delay(2500); await Idle(); await ClickViewport("after switching to Zernike-filtered map");
+                vm.Surface3D.Source = Qwlsi.App.ViewModels.SurfaceSource.Raw; vm.Surface3D.Resolution = Qwlsi.Core.MeshResolution.N512; await Task.Delay(2000);
             }
             vm.Surface3D.SetViewCommand.Execute("Top"); await Task.Delay(1500); await Idle(); ShotScreen("13_3d_top");
             vm.Surface3D.SetViewCommand.Execute("Isometric"); vm.Surface3D.Wireframe = true; vm.Surface3D.ExaggerationLog = 3.7; await Task.Delay(1800); await Idle(); ShotScreen("14_3d_wireframe_exaggerated");

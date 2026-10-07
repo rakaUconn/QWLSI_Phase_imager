@@ -18,6 +18,24 @@ using Vector3D = System.Windows.Media.Media3D.Vector3D;
 
 namespace Qwlsi.App.Controls;
 
+/// <summary>
+/// Viewport3DX whose mouse-down handler cannot throw. Helix hit-tests its (hidden) view box on every mouse-down and that code raises a
+/// NullReferenceException in this configuration; the app never needs the hit test, so the exception is swallowed (first few are logged).
+/// </summary>
+public sealed class SafeViewport3DX : Viewport3DX
+{
+    public static int Swallowed;
+    protected override void OnPreviewMouseDown(System.Windows.Input.MouseButtonEventArgs e)
+    {
+        try { base.OnPreviewMouseDown(e); }
+        catch (NullReferenceException ex)
+        {
+            if (System.Threading.Interlocked.Increment(ref Swallowed) <= 3)
+                try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "qwlsi_error.log"), DateTime.Now + " [swallowed in SafeViewport3DX.OnPreviewMouseDown]" + Environment.NewLine + ex.StackTrace?.Split('\n').FirstOrDefault() + Environment.NewLine + Environment.NewLine); } catch { }
+        }
+    }
+}
+
 public sealed class SceneOptions
 {
     public double Exaggeration = 1000;
@@ -30,6 +48,7 @@ public sealed class SceneOptions
 public partial class Surface3DView : UserControl
 {
     MeshGeometryModel3D? surface; LineGeometryModel3D? frame; BillboardTextModel3D? labels; DirectionalLight3D? l1, l2; AmbientLight3D? amb;
+    SafeViewport3DX Vp = null!; EffectsManager? em;
     Point3D sceneCenter; double sceneRadius = 5;
     SurfaceMeshData? mesh; SceneOptions opt = new(); bool software; string rendererNote = "";
     public event Action<string>? RendererFallback;
@@ -39,25 +58,44 @@ public partial class Surface3DView : UserControl
     public Surface3DView()
     {
         InitializeComponent();
-        UseEffectsManager(false);
-        Vp.RenderExceptionOccurred += (_, e) =>
-        {
-            if (!software) { Dispatcher.BeginInvoke(() => { UseEffectsManager(true); RendererFallback?.Invoke("Direct3D hardware rendering failed (" + e.Exception.GetType().Name + ") — switched to software (WARP)."); if (mesh != null) Rebuild(); }); }
-            else Dispatcher.BeginInvoke(() => { Message.Text = "3-D rendering failed: " + e.Exception.Message; Message.Visibility = Visibility.Visible; });
-        };
+        CreateViewport(false);
     }
 
-    /// <summary>Hardware Direct3D 11 (default) or WARP software rasteriser.</summary>
+    /// <summary>
+    /// Hardware Direct3D 11 (default) or WARP software rasteriser. The viewport is RE-CREATED on every renderer change: replacing the
+    /// EffectsManager of a live Viewport3DX leaves Helix's view-box node stale and every later mouse-down throws a NullReferenceException.
+    /// </summary>
     public void UseEffectsManager(bool useSoftware)
     {
-        software = useSoftware;
-        try
+        if (Vp != null && software == useSoftware) return;
+        CreateViewport(useSoftware); if (mesh != null) { Rebuild(); SetView("Isometric"); }
+    }
+
+    void CreateViewport(bool useSoftware)
+    {
+        if (Vp != null)
         {
-            Vp.EffectsManager = useSoftware ? new DefaultEffectsManager(new EffectsManagerConfiguration { EnableSoftwareRendering = true }) : new DefaultEffectsManager();
-            rendererNote = useSoftware ? "renderer: Direct3D 11 WARP (software)" : "renderer: Direct3D 11 hardware";
+            VpHost.Children.Remove(Vp); surface = null; frame = null; labels = null; l1 = l2 = null; amb = null;
+            try { Vp.Items.Clear(); } catch { }
+            try { Vp.Dispose(); } catch { }
+            try { em?.Dispose(); } catch { }   // release the Direct3D device of the old viewport (otherwise it leaks ~100s of MB per renderer switch)
+            em = null;
         }
-        catch (Exception e) { rendererNote = "renderer unavailable: " + e.Message; if (!useSoftware) { UseEffectsManager(true); return; } }
-        RendererText.Text = rendererNote;
+        software = useSoftware;
+        var vp = new SafeViewport3DX
+        {
+            BackgroundColor = Color.FromRgb(0x20, 0x25, 0x2B), ShowCoordinateSystem = false, ShowViewCube = false, EnableSwapChainRendering = true, MSAA = MSAALevel.Four, FXAALevel = FXAALevel.None,
+            CameraRotationMode = CameraRotationMode.Trackball, ZoomExtentsWhenLoaded = false, UseDefaultGestures = true, EnableDesignModeRendering = false,
+            EnableMouseButtonHitTest = false, IsViewCubeEdgeClicksEnabled = false,
+        };
+        try { em = useSoftware ? new DefaultEffectsManager(new EffectsManagerConfiguration { EnableSoftwareRendering = true }) : new DefaultEffectsManager(); vp.EffectsManager = em; rendererNote = useSoftware ? "renderer: Direct3D 11 WARP (software)" : "renderer: Direct3D 11 hardware"; }
+        catch (Exception e) { rendererNote = "renderer unavailable: " + e.Message; if (!useSoftware) { Vp = vp; CreateViewport(true); return; } }
+        Vp = vp; VpHost.Children.Insert(0, Vp); RendererText.Text = rendererNote;
+        Vp.RenderExceptionOccurred += (_, e) =>
+        {
+            if (!software) Dispatcher.BeginInvoke(() => { UseEffectsManager(true); RendererFallback?.Invoke("Direct3D hardware rendering failed (" + e.Exception.GetType().Name + ") — switched to software (WARP)."); });
+            else Dispatcher.BeginInvoke(() => { Message.Text = "3-D rendering failed: " + e.Exception.Message; Message.Visibility = Visibility.Visible; });
+        };
     }
 
     public void Clear(string message)
