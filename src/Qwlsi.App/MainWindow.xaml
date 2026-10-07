@@ -175,20 +175,48 @@
                         </StackPanel>
                         <c:MapView Spec="{Binding Spec}"/>
                     </DockPanel>
-                    <GroupBox Grid.Column="2" Header="Coefficients (fit of the raw OPD)" Margin="10,0,0,0">
-                        <ListView ItemsSource="{Binding Rows}" FontSize="12" BorderThickness="0">
-                            <ListView.View><GridView>
-                                <GridViewColumn Header="j" Width="30" DisplayMemberBinding="{Binding J}"/>
-                                <GridViewColumn Header="Noll" Width="38" DisplayMemberBinding="{Binding Noll}"/>
-                                <GridViewColumn Header="n" Width="26" DisplayMemberBinding="{Binding N}"/>
-                                <GridViewColumn Header="m" Width="28" DisplayMemberBinding="{Binding M}"/>
-                                <GridViewColumn Header="Name" Width="150" DisplayMemberBinding="{Binding Name}"/>
-                                <GridViewColumn Header="c [nm]" Width="68" DisplayMemberBinding="{Binding Nm}"/>
-                                <GridViewColumn Header="[D]" Width="52" DisplayMemberBinding="{Binding Diopters}"/>
-                                <GridViewColumn Header="" Width="70" DisplayMemberBinding="{Binding Removed}"/>
-                            </GridView></ListView.View>
-                        </ListView>
-                    </GroupBox>
+                    <Grid Grid.Column="2" Margin="10,0,0,0">
+                        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <GroupBox Header="Coefficients (fit of the raw OPD)" Margin="0,0,0,8">
+                            <ListView ItemsSource="{Binding Rows}" FontSize="12" BorderThickness="0">
+                                <ListView.View><GridView>
+                                    <GridViewColumn Header="j" Width="30" DisplayMemberBinding="{Binding J}"/>
+                                    <GridViewColumn Header="Noll" Width="38" DisplayMemberBinding="{Binding Noll}"/>
+                                    <GridViewColumn Header="n" Width="26" DisplayMemberBinding="{Binding N}"/>
+                                    <GridViewColumn Header="m" Width="28" DisplayMemberBinding="{Binding M}"/>
+                                    <GridViewColumn Header="Name" Width="150" DisplayMemberBinding="{Binding Name}"/>
+                                    <GridViewColumn Header="c [nm]" Width="68" DisplayMemberBinding="{Binding Nm}"/>
+                                    <GridViewColumn Header="[D]" Width="52" DisplayMemberBinding="{Binding Diopters}"/>
+                                    <GridViewColumn Header="" Width="70" DisplayMemberBinding="{Binding Removed}"/>
+                                </GridView></ListView.View>
+                            </ListView>
+                        </GroupBox>
+                        <GroupBox Grid.Row="1" Header="Export" Margin="0">
+                            <StackPanel>
+                                <TextBlock Text="Formats" FontWeight="SemiBold"/>
+                                <WrapPanel>
+                                    <CheckBox Content="matrix .txt/.csv" IsChecked="{Binding Offline.Export.MatrixTxt}" Margin="0,2,12,2"/><CheckBox Content="XYZ list" IsChecked="{Binding Offline.Export.XyzTxt}" Margin="0,2,12,2"/>
+                                    <CheckBox Content="MATLAB .mat" IsChecked="{Binding Offline.Export.Mat}" Margin="0,2,12,2"/><CheckBox Content="NumPy .npy" IsChecked="{Binding Offline.Export.Npy}" Margin="0,2,12,2"/>
+                                    <CheckBox Content="TIFF float32" IsChecked="{Binding Offline.Export.Tiff32}" Margin="0,2,12,2"/><CheckBox Content="PNG preview" IsChecked="{Binding Offline.Export.Png}" Margin="0,2,12,2"/>
+                                </WrapPanel>
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="units" Style="{StaticResource Label}" Margin="0,0,6,0"/><ComboBox Grid.Column="1" ItemsSource="{Binding Offline.UnitChoices}" SelectedItem="{Binding Offline.ExportUnit}" Margin="0,0,10,0"/>
+                                    <TextBlock Grid.Column="2" Text="delimiter" Style="{StaticResource Label}" Margin="0,0,6,0"/><ComboBox Grid.Column="3" ItemsSource="{Binding Offline.Delimiters}" SelectedItem="{Binding Offline.Export.Matrix.Delim}"/>
+                                </Grid>
+                                <CheckBox Content="comment header in text files (the removed terms are always in the sidecar JSON)" IsChecked="{Binding Offline.Export.Matrix.Header}" Margin="0,4,0,0"/>
+                                <TextBlock Text="Output folder" Margin="0,6,0,2" FontWeight="SemiBold"/>
+                                <TextBox Text="{Binding Offline.ExportFolder}" ToolTip="empty = image folder + qwlsi_out (same folder as the Offline tab)"/>
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Button Content="Export filtered OPD" Command="{Binding ExportFilteredCommand}" FontWeight="SemiBold" Background="#DCE9F8" Margin="0,0,6,4"/>
+                                    <Button Content="Export raw OPD" Command="{Binding ExportRawCommand}" Margin="0,0,6,4"/>
+                                    <Button Content="Coefficients CSV" Command="{Binding ExportCoefficientsCommand}" Margin="0,0,6,4"/>
+                                    <Button Content="Open folder" Command="{Binding OpenExportFolderCommand}" Margin="0,0,6,4"/>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding ExportMessage}" TextWrapping="Wrap" Style="{StaticResource Mono}" FontSize="11" Foreground="#2A6A2A"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </Grid>
                 </Grid>
             </TabItem>
 

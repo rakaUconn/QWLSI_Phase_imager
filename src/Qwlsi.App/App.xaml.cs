@@ -138,6 +138,15 @@ static class SelfTest
             vm.ZernikeVm.SelectedPreset = "+ astigmatism"; await Task.Delay(1500); await Idle(); Shot("11_zernike_defocus_astig_removed");
             log.Add("zernike +astig: " + vm.ZernikeVm.StatsText.Replace("\n", " | ") + " || WARN: " + vm.ZernikeVm.WarningText.Replace("\n", " | "));
             log.Add(Mem("after zernike tab"));
+            {   // Zernike-tab export buttons
+                string zdir = Path.Combine(outDir, "zernike_export"); vm.Offline.ExportFolder = zdir; vm.Settings.Export.Matrix.Header = true; vm.Settings.Export.Npy = true; vm.Settings.Export.Png = false;
+                vm.ZernikeVm.SelectedPreset = "+ defocus"; await Task.Delay(1500); await Idle();
+                await vm.ZernikeVm.ExportFilteredCommand.ExecuteAsync(null); log.Add("zernike export filtered: " + vm.ZernikeVm.ExportMessage.Replace("\n", " | "));
+                await vm.ZernikeVm.ExportRawCommand.ExecuteAsync(null); log.Add("zernike export raw: " + vm.ZernikeVm.ExportMessage.Replace("\n", " | "));
+                vm.ZernikeVm.ExportCoefficientsCommand.Execute(null); log.Add("zernike coefficients: " + vm.ZernikeVm.ExportMessage);
+                await Idle(); Shot("11b_zernike_export_buttons");
+                vm.ZernikeVm.SelectedPreset = "piston + tilt"; await Task.Delay(1200);
+            }
             // ---- 3-D tab (hardware D3D11 first, then software WARP)
             vm.ZernikeVm.SelectedPreset = "piston + tilt"; await Task.Delay(1200);
             vm.SelectedTab = 2; await Task.Delay(3000); await Idle(); ShotScreen("12_3d_isometric"); log.Add(Mem("3D iso (hardware)"));

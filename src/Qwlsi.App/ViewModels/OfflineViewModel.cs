@@ -261,13 +261,21 @@ public partial class OfflineViewModel : ObservableObject
     }
 
     [RelayCommand]
-    async Task ExportCurrent()
+    async Task ExportCurrent() { await ExportShownAsync(main.Settings.ExportFilteredOpd); }
+
+    public string ExportFolderPath() => EffectiveExportFolder();
+
+    /// <summary>Exports the displayed result with the formats / units chosen in the export panel. filtered = OPD with the Zernike terms removed (Zernike tab selection). Returns (and shows) a message.</summary>
+    public async Task<string> ExportShownAsync(bool filtered, bool forceOpd = false)
     {
-        if (shown == null) { ExportMessage = "Nothing to export: process a frame first."; return; }
-        string folder = EffectiveExportFolder(); var oc = shown; var par = main.Settings.Params.Clone(); var o = Export; var disp = Application.Current.Dispatcher; string? err = null; List<string> files = new();
+        if (shown == null) return ExportMessage = "Nothing to export: process a frame first.";
+        var zr = filtered ? main.ZernikeVm.Current : null; if (filtered && zr == null) return ExportMessage = "Zernike fit not ready yet.";
+        string folder = EffectiveExportFolder(); var oc = shown; var par = main.Settings.Params.Clone(); var disp = Application.Current.Dispatcher; string? err = null; List<string> files = new();
+        var o = Export; if (forceOpd && !o.Opd) { o = System.Text.Json.JsonSerializer.Deserialize<ExportOptions>(System.Text.Json.JsonSerializer.Serialize(Export))!; o.Opd = true; }
         ExportMessage = "Exporting…"; main.Settings.LastExportFolder = ExportFolder; main.Settings.Save();
-        await Task.Run(() => { try { var zr = main.Settings.ExportFilteredOpd && main.ZernikeVm.Current != null ? main.ZernikeVm.Current : null; files = ResultExporter.Export(oc, par, o, folder, null, (f, r) => disp.Invoke(() => SavePng(f, oc)), zr); } catch (Exception e) { err = e.Message; } });
+        await Task.Run(() => { try { files = ResultExporter.Export(oc, par, o, folder, null, (f, r) => disp.Invoke(() => SavePng(f, oc)), zr); } catch (Exception e) { err = e.Message; } });
         ExportMessage = err != null ? "Export failed: " + err : $"Exported {files.Count} file(s) to {folder}\n" + string.Join("\n", files.Select(System.IO.Path.GetFileName));
+        Processor.TrimProcessMemory(); return ExportMessage;
     }
 
     [RelayCommand]

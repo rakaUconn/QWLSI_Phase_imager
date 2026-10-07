@@ -162,6 +162,36 @@ public partial class ZernikeViewModel : ObservableObject
         var f = ZernikeTools.Fit(oc.Result.Opd, oc.Result.Mask, oc.Result.M, par.PitchM, 10, o); return ZernikeRemoval.Make(oc.Result.Opd, oc.Result.Mask, f, selection);
     }
 
+    // ---- export (shares the folder / formats / units of the Offline export panel) ----
+    public OfflineViewModel Offline => main.Offline;
+    [ObservableProperty] string exportMessage = "";
+
+    [RelayCommand] async Task ExportFiltered() { ExportMessage = "Exporting…"; ExportMessage = await main.Offline.ExportShownAsync(true, forceOpd: true); }
+    [RelayCommand] async Task ExportRaw() { ExportMessage = "Exporting…"; ExportMessage = await main.Offline.ExportShownAsync(false, forceOpd: true); }
+    [RelayCommand] void OpenExportFolder() => main.Offline.OpenExportFolderCommand.Execute(null);
+
+    /// <summary>Coefficient table (ANSI j, Noll, n, m, name, nm, diopters, removed flag) as CSV; the fit convention is in comment lines starting with '#'.</summary>
+    [RelayCommand]
+    void ExportCoefficients()
+    {
+        if (fit == null || removal == null || source == null) { ExportMessage = "No Zernike fit yet: process a frame first."; return; }
+        try
+        {
+            string folder = main.Offline.ExportFolderPath(); Directory.CreateDirectory(folder); string path = Path.Combine(folder, Path.GetFileNameWithoutExtension(source.File) + "_zernike_coefficients.csv"); var inv = CultureInfo.InvariantCulture;
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("# QwlsiApp Zernike coefficients (OSA/ANSI, order " + fit.Order + ", joint masked least squares)");
+            sb.AppendLine("# source: " + Path.GetFileName(source.File) + "   mode: " + source.Mode + "   lambda_nm: " + (main.Settings.Params.Lambda * 1e9).ToString("G6", inv));
+            sb.AppendLine("# convention: " + fit.Convention);
+            sb.AppendLine($"# circle: centre ({fit.Cx.ToString("F2", inv)}, {fit.Cy.ToString("F2", inv)}) px, radius {fit.RadiusPx.ToString("F2", inv)} px = {(fit.RadiusM * 1e3).ToString("F4", inv)} mm; fit pixels {fit.FitPixels}");
+            sb.AppendLine("# diopters: defocus 4*sqrt(3)*c/R^2 (+ = concave), astigmatism power-vector components 2*sqrt(6)*c/R^2; empty for other terms");
+            sb.AppendLine($"# rms before/after removal [nm]: {(removal.RmsBeforeM * 1e9).ToString("F2", inv)} / {(removal.RmsAfterM * 1e9).ToString("F2", inv)}; PV before/after [um]: {(removal.PvBeforeM * 1e6).ToString("F4", inv)} / {(removal.PvAfterM * 1e6).ToString("F4", inv)}");
+            sb.AppendLine("ansi_j,noll_j,n,m,name,coefficient_nm,diopters,removed");
+            foreach (var t in fit.Terms) { double d = fit.Diopters(t.J); sb.AppendLine($"{t.J},{t.Noll},{t.N},{t.M},{t.Name},{(fit.Coeff[t.J] * 1e9).ToString("F4", inv)},{(double.IsNaN(d) ? "" : d.ToString("F5", inv))},{(removal.Removed[t.J] ? 1 : 0)}"); }
+            File.WriteAllText(path, sb.ToString()); ExportMessage = "Coefficients written: " + path;
+        }
+        catch (Exception e) { ExportMessage = "Coefficient export failed: " + e.Message; }
+    }
+
     [RelayCommand] void ExpandAll() { foreach (var g in Groups) g.IsExpanded = true; }
     [RelayCommand] void CollapseAll() { foreach (var g in Groups) g.IsExpanded = false; }
 }

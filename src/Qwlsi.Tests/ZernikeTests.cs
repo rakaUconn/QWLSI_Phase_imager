@@ -198,7 +198,7 @@ public class ZernikeTests
             var files = ResultExporter.Export(oc, fx.Par, o, dir, null, null, zr);
             Assert.Equal(before, r.Opd);                                                                  // raw result untouched
             var txt = files.Single(f => f.EndsWith("_OPD_filtered_nm.txt")); var lines = File.ReadLines(txt).Take(14).ToList();
-            Assert.Contains(lines, l => l.StartsWith("# zernike removal: OSA/ANSI to order 10"));
+            Assert.Contains(lines, l => l.StartsWith("# zernike removal: order 10") && l.Contains("OSA/ANSI"));
             Assert.Contains(lines, l => l.Contains("zernike removed:") && l.Contains("j=4 (n=2,m=0, Noll 4, defocus)") && l.Contains("j=0 (n=0,m=0"));
             Assert.Contains(lines, l => l.Contains("rms before/after"));
             var npy = Npy.ReadFloat32(files.Single(f => f.EndsWith("_OPD_filtered_m.npy")), out _, out _); Assert.Equal(zr.Filtered[800 * 1504 + 750], npy[800 * 1504 + 750]);
