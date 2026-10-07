@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{48803E13-3A23-4782-AC44-A52A9058C262}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qwlsi.Core", "src\Qwlsi.Core\Qwlsi.Core.csproj", "{78E4520B-4231-4857-886F-15EBF0DFCB7F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Qwlsi.Bench", "src\Qwlsi.Bench\Qwlsi.Bench.csproj", "{D3600A57-79B3-414A-9E3B-2D511ED78E7D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{78E4520B-4231-4857-886F-15EBF0DFCB7F}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{78E4520B-4231-4857-886F-15EBF0DFCB7F}.Debug|Any CPU.Build.0 = Debug|x64
+		{78E4520B-4231-4857-886F-15EBF0DFCB7F}.Release|Any CPU.ActiveCfg = Release|x64
+		{78E4520B-4231-4857-886F-15EBF0DFCB7F}.Release|Any CPU.Build.0 = Release|x64
+		{D3600A57-79B3-414A-9E3B-2D511ED78E7D}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{D3600A57-79B3-414A-9E3B-2D511ED78E7D}.Debug|Any CPU.Build.0 = Debug|x64
+		{D3600A57-79B3-414A-9E3B-2D511ED78E7D}.Release|Any CPU.ActiveCfg = Release|x64
+		{D3600A57-79B3-414A-9E3B-2D511ED78E7D}.Release|Any CPU.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{78E4520B-4231-4857-886F-15EBF0DFCB7F} = {48803E13-3A23-4782-AC44-A52A9058C262}
+		{D3600A57-79B3-414A-9E3B-2D511ED78E7D} = {48803E13-3A23-4782-AC44-A52A9058C262}
+	EndGlobalSection
+EndGlobal

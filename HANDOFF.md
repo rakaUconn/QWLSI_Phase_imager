@@ -1,0 +1,106 @@
+# HANDOFF — QWLSI single-frame wavefront app (C# / .NET 8 / WPF, Windows x64)
+
+Prepared 2026-10-07 for Claude Code CLI running on the user's Windows PC (user: rakeshUH, UH Physiological Optics Lab).
+Working folder: `H:\caliberation\Phase_imager_cal\New\QwlsiApp\`  (parent folder holds data and the reference code).
+
+## 1. Goal
+A stand-alone, installable 64-bit Windows app built on the validated single-frame QWLSI reconstruction:
+1. **Live real-time imaging** from a XIMEA camera, with **high accuracy** (same solver as offline, not an approximation).
+2. **Offline processing** of saved TIFF frames (single file or batch).
+3. **Calibration file handling**: browse for `calibration.json`, auto-search for it, create it from a flat frame, save it.
+4. **With reference / without reference** operation.
+5. **Offline OPD export as .txt matrix** (and other formats, §6).
+6. A proper installer; runs on any 64-bit Windows PC without installing .NET.
+
+## 2. Inputs already on this PC (read-only unless stated)
+Parent folder `..\` = `H:\caliberation\Phase_imager_cal\New\`
+- Raw frames: `concave_1_img.tif`, `concave_2_img.tif`, `concave_1-5_img.tif`, `convex_1_img.tif`, `convex_2_img.tif`, `convex_1-5_img.tif`, flat/reference `ref.tif` (4512x4512, 650 nm illumination).
+- Vendor/reference-based outputs: `..\output\`.
+- Python reference: `..\recon_single_frame\qwlsi_single_frame.py`; MATLAB port `.m`; `calibration.json`; `README.md`.
+- GOLDEN results to test against: `..\recon_single_frame\results\*_OPD_m.npy` (float, metres), `*_field.npy` (complex), `ref_OPD_m.npy` (static system wavefront).
+- XIMEA SDK: `C:\XIMEA\Examples` — .NET wrapper `Bin\net7.0\xiApi.NET.dll` (also net5.0/net6.0/netcoreapp*), native `Bin\xiapi64.dll`, C# sample `Sources\xiAPI.NET.7.cs\Capture-images\Program.cs`, C header `Include\xiApi.h`, xml docs `Bin\net7.0\xiApi.NET.xml`.
+- Python is available on this PC for regenerating golden data: `python ..\recon_single_frame\qwlsi_single_frame.py frame.tif --calib ..\recon_single_frame\calibration.json --out <dir>`.
+
+## 3. System parameters (defaults; must be editable in the UI and saved in settings.json)
+Gamma (cross-grating period) = 16.44e-6 m; d (grating–camera distance) = 0.11e-3 m; p (pixel) = 2.74e-6 m; Z (relay zoom) = 1;
+wavelength = 650e-9 m; sensorSize = 4512; R = 695 (filter radius in FFT bins); theta = 0.5771 rad (nominal, approximate);
+decimation = 3 → output grid 1504x1504, pitch = 3*p = 8.22 µm. Nominal carrier |f| = 2/6 cyc/px (1504 FFT bins), carriers orthogonal.
+`calibration.json` (current): `fa=[0.2796747289760845,-0.18136218887192246]`, `fb=[-0.1813662601844535,-0.27973829485883484]` cyc/px.
+Keep the exact JSON schema of the Python version so the same file works in Python, MATLAB and this app.
+
+## 4. Algorithm (port 1:1 from `qwlsi_single_frame.py`; function names in brackets)
+1. Load frame, float32. FFT (real 4512x4512).  `[load]`
+2. Carriers fa, fb (cyc/px) come from calibration (or from the reference frame in with-ref mode; nominal+DFT-peak refinement only as a fallback `[nominal_carriers, dft_peak]`).
+3. Demodulate three lobes — DC (zero order), A (carrier a), B (carrier b): smooth-tapered circular spectral window of radius R around the NEAREST INTEGER BIN of the carrier, inverse FFT on the decimated 1504² grid, then apply the exact sub-bin phase ramp for the fractional carrier offset. `[window, baseband]`. Amplitude-preserving scale `(M*M)/(N*N)` — do NOT add an extra DEC² factor (that was a real bug, already fixed).
+4. Intensity: black level from the DC lobe (`lo = percentile(I0,10); black = mean(I0[I0 < 1.5*lo+1])`), `I = clip(I0-black,0)`, mask from lobe amplitude (`make_mask`, frac=0.15, erode=4), normalise I by the 95th percentile inside the mask. `[reconstruct]`
+5. Shear model: arg A_j = sigma*(2π/λ)*[W(x+s_j/2) − W(x−s_j/2)], shear vector s_j = λ d f_j / p² (px; ≈3.17 px), sigma = −1 (sign so that a concave lens gives a bowl, matching the vendor output). `[shear_px]`
+6. Solve for W: masked least squares with the exact shear operator, Fourier-preconditioned conjugate gradient, `iters=60`, `unwrap_passes=2` (re-wrap residual to nearest 2π multiple using the current estimate). `[solve_opd]` PLAIN CG WITHOUT THE PRECONDITIONER DOES NOT CONVERGE ON DEFOCUS-LIKE MODES — keep the preconditioner and the initial guess.
+7. Remove piston/tilt. Output OPD (m), mask, intensity, complex field U = sqrt(I)·exp(i·2π·W/λ)·mask. Report lens power (D), astigmatism, rms, PV from the Zernike fit. `[zfit, report]`
+
+Known physics (must be shown in the UI help):
+- Without a reference the OPD includes the static system/beam wavefront (~0.3–0.4 µm rms). Subtracting `ref_OPD_m.npy` (or any flat-frame OPD) reproduces reference-based results to ~5 nm.
+- A carrier error is indistinguishable from defocus/astigmatism → carriers need the one-time flat-frame calibration. `calibration.json` is valid for any sample as long as grating, camera, relay and binning are unchanged; for another wavelength set λ in the app (the shear scales with λ), re-check on a flat frame (should read 0.00 D), and make a new flat-based system wavefront.
+- Do NOT port the experimental forward-model/JAX fit in `..\recon_single_frame\experimental\`; real-data validation showed it is not an improvement.
+
+## 5. Modes and behaviour
+**Calibration**: Browse button; auto-search order = folder of the loaded image → app folder → last-used path (settings.json) → `%APPDATA%\QwlsiApp`; "Calibrate from flat frame" (file or live, optional average of N frames) → show carriers and residual → "Save as calibration.json". Show the loaded calibration's path and fa/fb in the status bar.
+**With reference**: "Capture reference" (live, average N frames) or load a reference TIFF / saved reference. Divide the sample lobes by the reference lobes (A/A_ref, B/B_ref), then the same shear-model solve → sample-only OPD; carriers are detected from the reference. Intensity from DC lobe as above.
+**Without reference**: use calibration.json; optional "system wavefront file" (`ref_OPD_m.npy`-like, or one made from a flat frame) to subtract; otherwise show a visible note that static system wavefront is included.
+**Offline**: open file or folder, process one/batch with progress + cancel, export, summary table (power, astigmatism, rms, PV) as CSV.
+**Live (high accuracy)**: same solver and full 1504² grid as offline. To keep it usable:
+- grab loop keeps ONLY the newest frame (drop old ones), process on a worker thread, render at ≤30 fps;
+- warm-start CG from the previous frame's W (few iterations when the scene changes little); show per-frame state "refining"/"converged" + residual;
+- progressive display: show a fast first estimate, then replace with the converged result;
+- optional average of N frames' lobes before solving; "Freeze & refine" runs to full convergence and is what gets saved;
+- optional low-resolution preview switch for alignment (OFF by default).
+Expect roughly 0.5–1.5 s/frame on a multi-core CPU (an ESTIMATE — measure it in Phase 0 and report real numbers).
+
+## 6. Offline export (OPD and other maps)
+- **Matrix .txt / .csv**: 1504 rows × 1504 columns, one image row per line (loadable with MATLAB `readmatrix`/`load`, numpy `loadtxt`). Options: delimiter (tab/space/comma), decimals, units (nm, µm, m, waves), outside-pupil as NaN or 0, optional header as `#` comment lines (λ, pitch, calibration used, mode, date) — header OFF by default for a pure matrix. Stream-write; ~20–25 MB per frame.
+- **XYZ list .txt**: columns x_mm, y_mm, OPD; option to drop masked pixels.
+- Also: `.mat` (v5, loads in MATLAB), `.npy` (float32 / complex64), 32-bit float TIFF, PNG preview with colormap + colorbar.
+- Same options for intensity, mask, and complex field (real+imag or amplitude+phase as two matrices). Always write a sidecar JSON with all parameters used.
+
+## 7. XIMEA camera (live source)
+Use `xiApi.NET` (reference `Bin\net7.0\xiApi.NET.dll`; verify it loads under net8.0-windows; fall back to targeting net7/net6 if it does not). API pattern from the SDK sample: `new xiCam()`, `GetNumberDevices`, `OpenDevice(i)`, `GetParam(PRM.DEVICE_NAME / DEVICE_SN, out string)`, `SetParam(PRM.EXPOSURE, µs)`, `SetParam(PRM.GAIN, dB)`, `SetParam(PRM.IMAGE_DATA_FORMAT, IMG_FORMAT.…)`, `SetParam(PRM.BUFFER_POLICY, BUFF_POLICY.SAFE)`, `GetParamInt(PRM.WIDTH/HEIGHT)`, start acquisition, `GetImage(...)`.
+- Capture 16-bit (`RAW16` or `MONO16`) at full sensor bit depth, NOT the 8-bit used in the sample. Warn if the image format is 8-bit or the frame size ≠ calibration size.
+- UI: camera picker (model + serial), exposure µs, gain, saturation warning + histogram, start/stop, snapshot, reference capture with averaging.
+- Implement behind `ICameraSource` with adapters: `XimeaCameraSource`, `FolderWatcherSource`, `TiffStackSource`, `SimulatorSource` (replays the lens frames) so everything is testable without a camera.
+- Ship `xiapi64.dll` next to the exe; the XIMEA API software package (driver) must be installed on the target PC — installer should check and tell the user if missing. If xiApi is unavailable the app must still start in offline/simulator mode.
+- First: write a tiny console probe that opens the camera, prints model/serial/sensor size/bit depth, grabs one frame at 16-bit and saves it as TIFF. Ask the user for the camera model if `DEVICE_NAME` cannot be read.
+
+## 8. Architecture
+Solution `QwlsiApp.sln`:
+- `Qwlsi.Core` (net8.0, no UI): carriers/calibration IO, window+demodulation, intensity/mask, shear model, CG solver, Zernike/report, complex field, exporters.
+- `Qwlsi.Camera` (net8.0-windows): `ICameraSource`, XIMEA + file/simulator sources.
+- `Qwlsi.App` (net8.0-windows, WPF, MVVM): views for Live / Offline / Calibration / Settings; WriteableBitmap viewer with colormaps, FFT view marking lobes, profile line, results panel.
+- `Qwlsi.Tests` (xUnit): golden tests (§10).
+- FFT: native FFTW (`libfftw3f-3.dll`, bundled) or Intel MKL via a thin P/Invoke wrapper; real-to-complex where possible; plan reuse; parallel across cores. Benchmark both in Phase 0 and choose; pure-managed FFT is too slow for 4512². Float32 throughout; preallocate; no per-frame allocations on the hot path.
+- TIFF IO: a maintained library (e.g. BitMiracle.LibTiff.NET); handle 8/12/16-bit, big frames.
+- Packaging: `dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true`; installer with Inno Setup (per-user, no admin) + portable zip; provide `build.bat` that publishes and builds the installer in one step. Settings in `%APPDATA%\QwlsiApp\settings.json`.
+
+## 9. Phases (finish each and report before the next)
+0. **Spike**: FFT benchmark (4512² r2c and 1504² c2c, FFTW vs MKL) on this PC; port `Qwlsi.Core`; run on all six lens frames and ref with `calibration.json`; compare with golden results (§10); measure seconds/frame cold and warm-started; XIMEA probe grabs one 16-bit frame. REPORT real timings.
+1. **Offline app**: UI, load/batch, with/without ref, calibration browse/auto-find/make/save, all exports.
+2. **Live mode**: XIMEA source, high-accuracy pipeline, progressive display, freeze & refine, reference capture, live calibration.
+3. **Packaging**: self-contained publish, installer, driver check, test on a clean machine/VM, short user guide.
+4. Optional: GPU FFT if Phase 0/2 timings show the CPU rate is too low.
+
+## 10. Acceptance tests (write them as xUnit tests against the golden data)
+- OPD vs `results\<frame>_OPD_m.npy`: rms difference ≤ 5 nm inside the mask on all six lens frames and ref (the Octave port achieved ≤ 6 nm; piston/tilt removed on both sides before comparing).
+- Intensity: relative difference ≤ 0.01 % vs Python; |U|² correlates ≥ 0.98 with the smoothed raw frame.
+- Lens powers (Zernike defocus, + = concave): concave_1 ≈ +0.72 D, convex_2 ≈ −1.47 D (±0.01 D); ref (flat) ≈ 0.00 D with its own carriers. Regenerate exact values by running the Python script.
+- With-ref mode (reference = ref.tif): the sample OPD equals (single-frame OPD − ref_OPD_m) to ≤ 10 nm rms, tilt removed.
+- Calibration round-trip: calibrate from `ref.tif` → carriers within 1e-5 cyc/px of the JSON above; JSON read/written bit-compatible with Python.
+- Matrix export: 1504×1504 numbers, round-trips in numpy `loadtxt`/MATLAB `readmatrix` to the printed precision.
+- Live simulator: continuous 1-minute run with no memory growth, no frame backlog, UI stays responsive.
+
+## 11. Lessons learned (do not repeat)
+- Extra DEC² (=9) scaling in the spectral window broke intensity; black-level must be removed from the DC lobe.
+- Plain CG fails on low-order modes; the Fourier preconditioner + initial guess fix it.
+- sigma = −1 is the sign convention that matches the vendor map.
+- A 4 GB memory limit applied to the old Python run (double precision); in C# use float32 and process one frame at a time.
+- Carrier calibration ≡ defocus/astig calibration; never trust nominal carriers (3.7 µm rms error).
+
+## 12. Ask the user before assuming
+Camera model/serial and bit depth; whether other wavelengths will be used; preferred default units for text export; whether an installer needs code signing; whether Mac/Linux is ever needed (current plan: Windows x64 only).
