@@ -66,6 +66,11 @@ add('Microsoft .NET 8 runtime, Windows Presentation Foundation, Windows Forms, S
     'The self-contained build bundles the .NET 8 runtime and the Windows Desktop libraries (System.*.dll, Presentation*.dll, WindowsBase.dll, System.Windows.Forms.dll, ...). Copyright (c) Microsoft Corporation and the .NET Foundation. Source: https://github.com/dotnet/runtime, https://github.com/dotnet/wpf, https://github.com/dotnet/winforms (MIT).',
     '(c) Microsoft Corporation. All rights reserved.\n\n' + MIT)
 
+# FFmpeg (LGPL build, separate executable bundled for the Video tab): text kept in tools/notice_ffmpeg.txt (title line, what, '===' line, license/notes)
+_ff = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'notice_ffmpeg.txt'), encoding='utf8').read().replace('\r\n', '\n')
+_ff_title, _ff_rest = _ff.split('\n', 1); _ff_what, _ff_lic = _ff_rest.split('\n===\n')
+add(_ff_title.strip(), _ff_what.strip(), _ff_lic.strip())
+
 head = """QWLSI single-frame wavefront 1.0.0 - THIRD-PARTY NOTICES
 =========================================================
 This program bundles the third-party components listed below. Their licenses are reproduced as required.

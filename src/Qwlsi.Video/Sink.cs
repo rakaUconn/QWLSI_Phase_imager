@@ -7,6 +7,8 @@ public sealed class VideoEncodeOptions
 {
     /// <summary>Path of ffmpeg.exe; null = look for it (app folder\ffmpeg\ffmpeg.exe, then PATH). See FfmpegLocator.</summary>
     public string? FfmpegPath { get; set; }
+    /// <summary>Ignore any ffmpeg (MP4 then falls back to the native AVI sink); used by tests and the "no ffmpeg" path.</summary>
+    public bool DisableFfmpeg { get; set; }
     /// <summary>H.264 target bits per pixel per frame (bitrate = w*h*fps*BitsPerPixel).</summary>
     public double BitsPerPixel { get; set; } = 0.10;
     /// <summary>JPEG quality 1..100 for AVI (MJPEG).</summary>
