@@ -108,6 +108,28 @@ public sealed class ResultDiskCache : IDisposable
         }
     }
 
+    /// <summary>Reads ONLY the pupil mask of a cached entry (seeks past OPD and intensity). null = missing / truncated / corrupt (the entry is then forgotten, as in TryGet).</summary>
+    public byte[]? TryGetMask(string key)
+    {
+        lock (gate) { if (!entries.ContainsKey(key)) return null; }
+        try
+        {
+            using var fs = new FileStream(PathOf(key), FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+            var head = new byte[8]; fs.ReadExactly(head); if (Encoding.ASCII.GetString(head, 0, 4) != Magic) throw new InvalidDataException("bad cache file");
+            var json = new byte[BitConverter.ToInt32(head, 4)]; fs.ReadExactly(json);
+            var meta = JsonSerializer.Deserialize<Meta>(json) ?? throw new InvalidDataException("bad cache metadata"); long n = (long)meta.M * meta.M, off = 8 + json.Length;
+            if (fs.Length != off + 9 * n) throw new InvalidDataException("truncated cache file");
+            fs.Seek(off + 8 * n, SeekOrigin.Begin); var mask = new byte[n]; fs.ReadExactly(mask);
+            lock (gate) { if (entries.TryGetValue(key, out var e)) entries[key] = (e.size, ++tick); }
+            return mask;
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+        {
+            lock (gate) { if (entries.Remove(key, out var old)) total -= old.size; }
+            return null;
+        }
+    }
+
     public void Clear()
     {
         lock (gate) { foreach (var k in entries.Keys) try { File.Delete(PathOf(k)); } catch { } entries.Clear(); total = 0; }
@@ -184,6 +206,13 @@ public sealed class ResultStore : IDisposable
     {
         var hit = await Task.Run(() => Find(key), ct).ConfigureAwait(false); if (hit != null) return (hit, false);
         var oc = await Task.Run(() => compute(ct), ct).ConfigureAwait(false); Add(key, oc); return (oc, true);
+    }
+
+    /// <summary>Only the mask of a stored result: RAM first, then a mask-only read from disk. null = not stored.</summary>
+    public byte[]? FindMask(string key)
+    {
+        lock (gate) { int i = ram.FindIndex(c => c.key == key); if (i >= 0) return ram[i].oc.Result.Mask; }
+        return Disk.TryGetMask(key);
     }
 
     public void Clear() { lock (gate) ram.Clear(); Disk.Clear(); }
