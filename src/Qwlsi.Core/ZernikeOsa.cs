@@ -87,13 +87,19 @@ public static class ZernikeBasis
     }
 }
 
+/// <summary>An explicit fit circle in pixel coordinates (x right, y down, pixel centres at integers) used instead of the circle fitted to one frame's mask (common-circle option).</summary>
+public sealed record ZernikeCircle(double Cx, double Cy, double RadiusPx);
+
 /// <summary>Result of a joint masked least-squares fit of the OSA/ANSI basis over the mask-fitted circle.</summary>
 public sealed class ZernikeFit
 {
     public int Order; public ZTerm[] Terms = Array.Empty<ZTerm>(); public double[] Coeff = Array.Empty<double>();   // same unit as the fitted map (metres)
     public double Cx, Cy, RadiusPx, PitchM; public int M; public long FitPixels; public ZernikeOrientation Orient = new();
+    /// <summary>True when the circle was given explicitly (common circle) instead of being fitted to this frame's mask.</summary>
+    public bool CommonCircle;
     public double RadiusM => RadiusPx * PitchM;
     public string Convention => $"OSA/ANSI, theta ccw from +x, x {(Orient.FlipX ? "left" : "right")}, y {(Orient.FlipY ? "down (image rows)" : "up (rows flipped)")}";
+    public string PupilDescription => CommonCircle ? "common circle (given)" : "circle fitted to this frame's mask (centroid, radius sqrt(area/pi))";
 
     /// <summary>Dioptric equivalent [D] of a second-order term (+ = concave): defocus 4*sqrt(3) c / R^2, astigmatism power-vector components 2*sqrt(6) c / R^2. NaN for other terms.</summary>
     public double Diopters(int j) => j switch { 4 => 4 * Math.Sqrt(3) * Coeff[4] / (RadiusM * RadiusM), 3 or 5 => 2 * Math.Sqrt(6) * Coeff[j] / (RadiusM * RadiusM), _ => double.NaN };
@@ -122,13 +128,14 @@ public static class ZernikeTools
     }
 
     /// <summary>Joint fit of all terms up to `order` to W (NaN or mask==0 outside) over mask pixels with rho &lt;= 1; circle = mask centroid and radius sqrt(area/pi).</summary>
-    public static ZernikeFit Fit(float[] W, byte[] mask, int M, double pitchM, int order = 10, ZernikeOrientation? orient = null)
+    public static ZernikeFit Fit(float[] W, byte[] mask, int M, double pitchM, int order = 10, ZernikeOrientation? orient = null, ZernikeCircle? circle = null)
     {
         int K = ZernikeBasis.Count(order); var f = new ZernikeFit { Order = order, Terms = ZernikeBasis.Terms(order).ToArray(), M = M, PitchM = pitchM, Orient = orient ?? new ZernikeOrientation() };
         double sy = 0, sx = 0; long cnt = 0;
         for (int y = 0; y < M; y++) for (int x = 0; x < M; x++) if (mask[(long)y * M + x] != 0) { sy += y; sx += x; cnt++; }
         if (cnt == 0) throw new InvalidOperationException("empty mask");
         f.Cx = sx / cnt; f.Cy = sy / cnt; f.RadiusPx = Math.Sqrt(cnt / Math.PI);
+        if (circle != null) { f.Cx = circle.Cx; f.Cy = circle.Cy; f.RadiusPx = circle.RadiusPx; f.CommonCircle = true; }
         var ata = new double[K * K]; var atb = new double[K]; long used = 0; object lk = new();
         Parallel.For(0, M, () => (new double[K * K], new double[K], new double[K], new long[1]), (y, st, loc) =>
         {
