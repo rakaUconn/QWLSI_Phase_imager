@@ -31,6 +31,9 @@ public class BoolIndexConverter : IValueConverter
 public partial class App : Application
 {
     public static bool SelfTestMode;
+    static MainViewModel? mainVm;
+    /// <summary>Deletes the temporary result cache (idempotent; called from OnExit and, as a backstop, from ProcessExit).</summary>
+    static void CleanupCache() { try { mainVm?.Offline.Shutdown(); } catch { } }
 
     static MainViewModel? Vm => Current?.MainWindow?.DataContext as MainViewModel;
 
@@ -65,7 +68,7 @@ public partial class App : Application
     /// </summary>
     protected override void OnExit(ExitEventArgs e)
     {
-        AppLog.Info("QwlsiApp exiting (code " + e.ApplicationExitCode + ")");
+        AppLog.Info("QwlsiApp exiting (code " + e.ApplicationExitCode + ")"); CleanupCache();
         base.OnExit(e);
         var t = new Thread(() => { Thread.Sleep(2500); Environment.Exit(e.ApplicationExitCode); }) { IsBackground = true, Name = "ExitWatchdog" };
         t.Start();
@@ -76,7 +79,7 @@ public partial class App : Application
         var args = e.Args; string? Opt(string n) { int i = Array.IndexOf(args, n); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
         var selftest = Opt("--selftest"); SelfTestMode = selftest != null; if (selftest != null) { Directory.CreateDirectory(selftest); Environment.SetEnvironmentVariable("QWLSI_APPDATA", Path.Combine(selftest, "appdata")); }   // self-test never touches the real settings / logs
         var settings = selftest != null ? new AppSettings() : null;      // self-test: defaults, never touches the user's settings.json
-        var vm = new MainViewModel(settings);
+        var vm = new MainViewModel(settings); mainVm = vm; AppDomain.CurrentDomain.ProcessExit += (_, _) => CleanupCache();
         var win = new MainWindow { DataContext = vm };
         if (selftest != null) win.ContentRendered += async (_, _) => await SelfTest.Run(win, vm, selftest, Opt("--file") ?? "", Opt("--ref") ?? "", Opt("--calib") ?? "", Opt("--flat") ?? "");
         win.Show();
@@ -130,6 +133,28 @@ static class SelfTest
             vm.Offline.AddPaths(file.Split(';', StringSplitOptions.RemoveEmptyEntries)); await Idle();
             await vm.Offline.ProcessAllCommand.ExecuteAsync(null); await Idle(); await Task.Delay(300); await Idle();
             log.Add("without reference: " + vm.Offline.StatsText.Replace("\n", " | ")); Shot("02_offline_opd");
+            {   // 1.0.1 regression: after "Process all" the LAST frame is shown, every row can be selected and shows a result (RAM -> disk cache -> recompute)
+                var off = vm.Offline; int nDone = off.Files.Count(f => f.Status == "done");
+                log.Add($"REGRESS batch: {nDone}/{off.Files.Count} done; selected after batch = {off.SelectedFile?.Name} (last row = {off.Files.LastOrDefault()?.Name}); Spec shown = {off.Spec != null}; batch note = {(off.BatchNote.Length > 0 ? "yes" : "NO")}; export folder = {off.ExportFolder}");
+                int ok = 0, bad = 0;
+                foreach (var row in off.Files.Concat(off.Files.Reverse()).ToList())
+                {
+                    off.SelectedFile = null; off.SelectedFile = row; await off.ShowTask; await Idle();
+                    bool shownOk = off.Spec != null && off.Shown != null && string.Equals(off.Shown.File, row.Path, StringComparison.OrdinalIgnoreCase) && off.StatsText.Contains("Lens power");
+                    if (shownOk) ok++; else { bad++; log.Add("REGRESS row without result: " + row.Name + " -> " + off.StatsText); }
+                }
+                log.Add($"REGRESS select every row twice (forward + backward): {ok} shown, {bad} missing; disk cache entries {off.Store.Disk.Count}, {off.Store.Disk.TotalBytes / 1048576} MB in {off.Store.Disk.Dir}");
+                // colour range: manual range, then another frame -> back to auto
+                off.AutoRange = false; off.VminText = "-1"; off.VmaxText = "1"; await Idle(); if (off.Files.Count > 1) { off.SelectedFile = off.Files.First(f => f != off.SelectedFile); await off.ShowTask; await Idle(); }
+                log.Add($"REGRESS colour range after frame change: auto={off.AutoRange}, vmin={off.VminText}, vmax={off.VmaxText}");
+                // missing result (cache wiped): automatic recompute with progress, and the other tabs follow
+                off.Store.Clear(); var first = off.Files[0]; off.SelectedFile = null; var sw0 = System.Diagnostics.Stopwatch.StartNew(); off.SelectedFile = first; await Task.Delay(300); await Idle();
+                log.Add($"REGRESS during recompute: IsRecomputing={off.IsRecomputing}, status bar='{vm.StatusMessage}', zernike text='{vm.ZernikeVm.StatsText.Replace("\n", " ")}'");
+                await off.ShowTask; await Idle(); await Task.Delay(1500); await Idle();
+                log.Add($"REGRESS after recompute ({sw0.Elapsed.TotalSeconds:F1} s): Spec shown = {off.Spec != null}, IsRecomputing={off.IsRecomputing}, zernike rows = {vm.ZernikeVm.Rows.Count}, 3D mesh = {(vm.Surface3D.Mesh != null)}");
+                var pp = System.Diagnostics.Process.GetCurrentProcess(); pp.Refresh(); log.Add($"MEM peak working set of the whole process so far: {pp.PeakWorkingSet64 / 1048576} MB (peak private {pp.PeakPagedMemorySize64 / 1048576} MB)");
+                off.SelectedFile = off.Files.Last(); await off.ShowTask; await Idle();
+            }
             vm.Offline.Kind = DisplayKind.Intensity; await Idle(); Shot("03_offline_intensity");
             vm.Offline.Kind = DisplayKind.Phase; await Idle(); Shot("03b_offline_phase");
             vm.Offline.Kind = DisplayKind.OPD;
@@ -204,6 +229,7 @@ static class SelfTest
             }
             vm.SelectedTab = 5; await Idle(); Shot("08_help");
             log.Add("peak memory last frame: " + vm.Offline.LastPeakMb.ToString("F0") + " MB");
+            { var pk = System.Diagnostics.Process.GetCurrentProcess(); pk.Refresh(); log.Add($"MEM PEAK of the whole app session: working set {pk.PeakWorkingSet64 / 1048576} MB, pagefile/private {pk.PeakPagedMemorySize64 / 1048576} MB"); log.Add("cache folder at end: " + vm.Offline.Store.Disk.Dir); }
             var pr = System.Diagnostics.Process.GetCurrentProcess(); pr.Refresh(); string M(long b) => (b / 1048576).ToString();
             log.Add($"idle before GC: WS {M(pr.WorkingSet64)} MB, private {M(pr.PrivateMemorySize64)} MB, managed {M(GC.GetTotalMemory(false))} MB");
             Qwlsi.Core.Processor.TrimProcessMemory(); await Idle(); pr.Refresh();

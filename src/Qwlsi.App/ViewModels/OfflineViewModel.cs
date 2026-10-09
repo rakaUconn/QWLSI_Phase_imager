@@ -43,6 +43,9 @@ public partial class OfflineViewModel : ObservableObject
     [ObservableProperty] string progressText = "";
     [ObservableProperty] bool canCancel;
     [ObservableProperty] bool isRunning;
+    [ObservableProperty] bool isRecomputing;
+    /// <summary>Shown after a batch that was not exported automatically: nothing is on disk yet except the temporary viewer cache.</summary>
+    [ObservableProperty] string batchNote = "";
 
     // display
     [ObservableProperty] DisplayKind kind = DisplayKind.OPD;
@@ -72,13 +75,20 @@ public partial class OfflineViewModel : ObservableObject
     public double LastPeakMb { get; private set; }
     public string? CurrentImageFolder => SelectedFile != null ? System.IO.Path.GetDirectoryName(SelectedFile.Path) : Files.Count > 0 ? System.IO.Path.GetDirectoryName(Files[0].Path) : null;
 
-    ReconOutcome? shown; readonly List<(string path, ReconOutcome oc)> cache = new(); const int CacheSize = 3;
+    ReconOutcome? shown;
+    /// <summary>Last 3 results in RAM, every processed result on disk (%LOCALAPPDATA%\QwlsiApp\cache, size-limited, removed on exit); missing ones are recomputed.</summary>
+    readonly ResultStore store;
     readonly List<SummaryRow> summary = new(); CancellationTokenSource? cts;
+    CancellationTokenSource? showCts; int showVersion; Task recomputeTask = Task.CompletedTask;
+    /// <summary>The latest "show the selected frame" job (load from cache or recompute); awaited by the self-test.</summary>
+    public Task ShowTask { get; private set; } = Task.CompletedTask;
+    public ResultStore Store => store;
 
     public OfflineViewModel(MainViewModel m)
     {
         main = m; Cmap = Enum.TryParse<ColormapKind>(m.Settings.Colormap, out var ck) ? ck : ColormapKind.Viridis;
-        ExportFolder = m.Settings.LastExportFolder ?? ""; WithReference = false; ReferencePath = m.Settings.LastReferencePath; SystemWavefrontPath = m.Settings.SystemWavefrontPath;
+        store = new ResultStore(new ResultDiskCache(AppSettings.CacheDir, (long)Math.Max(64, m.Settings.CacheLimitMb) << 20));
+        ExportFolder = SavedExportFolder(m.Settings.LastExportFolder) ?? AppSettings.DefaultOutputDir; WithReference = false; ReferencePath = m.Settings.LastReferencePath; SystemWavefrontPath = m.Settings.SystemWavefrontPath;
         ExportUnit = Export.Matrix.Unit; Decimals = Export.Matrix.Decimals;
     }
 
@@ -87,8 +97,20 @@ public partial class OfflineViewModel : ObservableObject
     partial void OnKindChanged(DisplayKind value) { RefreshMap(true); }
     partial void OnCmapChanged(ColormapKind value) { main.Settings.Colormap = value.ToString(); RefreshMap(false); }
     partial void OnDisplayUnitChanged(Units value) { RefreshMap(true); }
-    partial void OnAutoRangeChanged(bool value) { RefreshMap(value); }
-    partial void OnSelectedFileChanged(FileItem? value) { if (value != null) ShowCached(value); }
+    bool suppressAutoRange;
+    partial void OnAutoRangeChanged(bool value) { if (!suppressAutoRange) RefreshMap(value); }
+    partial void OnSelectedFileChanged(FileItem? value) { ShowTask = ShowSelectedAsync(value); }
+
+    /// <summary>A folder remembered from an earlier session, unless it is a temporary one (old builds / tests left those in settings.json).</summary>
+    static string? SavedExportFolder(string? f)
+    {
+        if (string.IsNullOrWhiteSpace(f)) return null;
+        try { var tmp = System.IO.Path.GetFullPath(System.IO.Path.GetTempPath()).TrimEnd('\\'); if (System.IO.Path.GetFullPath(f).StartsWith(tmp, StringComparison.OrdinalIgnoreCase)) return null; } catch { }
+        return f;
+    }
+
+    /// <summary>Called on exit: stops background work and deletes the temporary result cache.</summary>
+    public void Shutdown() { try { showCts?.Cancel(); cts?.Cancel(); } catch { } store.Dispose(); }
 
     // ------------------------------------------------------------------------------------------------ files
     static bool IsTiff(string p) => p.EndsWith(".tif", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".tiff", StringComparison.OrdinalIgnoreCase);
@@ -120,7 +142,7 @@ public partial class OfflineViewModel : ObservableObject
         if (dlg.ShowDialog() == true) AddPaths(new[] { dlg.FolderName });
     }
 
-    [RelayCommand] void ClearList() { if (IsRunning) return; Files.Clear(); cache.Clear(); shown = null; Spec = null; StatsText = "No result yet."; summary.Clear(); SelectedFile = null; }
+    [RelayCommand] void ClearList() { if (IsRunning) return; showCts?.Cancel(); Files.Clear(); store.Clear(); BatchNote = ""; summary.Clear(); SelectedFile = null; ClearView("No result yet."); }
 
     [RelayCommand]
     void BrowseReference()
@@ -148,14 +170,15 @@ public partial class OfflineViewModel : ObservableObject
     async Task Run(List<FileItem> items)
     {
         if (items.Count == 0) { main.StatusMessage = "Open a frame or folder first."; return; }
+        showCts?.Cancel(); await recomputeTask;      // a recompute for the viewer must not run beside the batch (memory)
         if (main.IsBusy) return;
         if (WithReference && (string.IsNullOrEmpty(ReferencePath) || !File.Exists(ReferencePath))) { main.StatusMessage = "With-reference mode: choose a reference frame."; return; }
         if (!WithReference && main.Current == null) { main.AutoFindCalibration(CurrentImageFolder, true); if (main.Current == null) { main.StatusMessage = "No calibration loaded: use the Calibration tab (browse / auto-find / make from a flat frame)."; main.SelectedTab = 3; return; } }
         main.IsBusy = true; IsRunning = true; CanCancel = true; cts = new CancellationTokenSource(); var ct = cts.Token;
         foreach (var it in items) { it.Status = "queued"; it.Power = it.Rms = it.Seconds = ""; }
-        summary.Clear(); main.Settings.Save();
+        summary.Clear(); BatchNote = ""; main.Settings.Save();
         AppLog.Info($"batch start: {items.Count} frame(s), {(WithReference ? "with reference " + ReferencePath : "without reference")}, lambda {main.Settings.Params.Lambda * 1e9:G6} nm");
-        var session = new ReconSession { Par = main.Settings.Params.Clone(), Calibration = main.Current, CalibrationPath = main.CurrentPath, ReferencePath = WithReference ? ReferencePath : null, SystemWavefrontPath = WithReference ? null : SystemWavefrontPath };
+        var session = MakeSession();
         bool filtered = main.Settings.ExportFilteredOpd; var zsel = main.ZernikeVm.Selection(); var paths = items.Select(i => i.Path).ToList(); var dispatcher = Application.Current.Dispatcher; var export = Export; bool auto = main.Settings.AutoExportBatch; string folder = EffectiveExportFolder();
         var prog = new Progress<BatchProgress>(bp =>
         {
@@ -168,6 +191,7 @@ public partial class OfflineViewModel : ObservableObject
             rows = await Task.Run(() => BatchRunner.Run(session, paths, oc =>
             {
                 var it = items[paths.IndexOf(oc.File)];
+                store.Add(session.CacheKey(oc.File), oc);      // disk + last-3 RAM: every processed frame stays viewable
                 if (auto) { try { var zr = filtered ? main.ZernikeVm.MakeFor(oc, zsel, session.Par) : null; ResultExporter.Export(oc, session.Par, export, folder, null, (f, r) => dispatcher.Invoke(() => SavePng(f, oc)), zr); } catch (Exception e) { dispatcher.Invoke(() => ExportMessage = "Auto-export failed: " + e.Message); } }
                 dispatcher.Invoke(() => OnResult(it, oc));
             }, (f, e) => dispatcher.Invoke(() => { var it = items[paths.IndexOf(f)]; it.Status = "error: " + e.Message; errors.Add(it.Name + ": " + e.Message); AppLog.Error("processing failed: " + f, e); }), prog, ct));
@@ -180,24 +204,74 @@ public partial class OfflineViewModel : ObservableObject
         AppState.CurrentFile = null; IsRunning = false; CanCancel = false; main.IsBusy = false; Progress = ct.IsCancellationRequested ? Progress : 1;
         ProgressText = ct.IsCancellationRequested ? "Cancelled." : $"Done: {rows.Count(r => r.Error == "")}/{items.Count} frame(s) in {sw.Elapsed.TotalSeconds:F1} s" + (errors.Count > 0 ? $", {errors.Count} error(s)" : "");
         main.StatusMessage = ProgressText + (auto ? $"  Exports in {folder}" : "");
+        if (!auto && rows.Any(r => r.Error == ""))
+        {
+            BatchNote = $"Nothing has been saved yet. The results are only shown here (kept in a temporary cache that is deleted when you quit). Use 'Export' / 'Save summary' below, or tick auto-export before processing. Output folder: {folder}";
+            main.StatusMessage += "  — nothing saved yet (auto-export is off).";
+        }
         Processor.TrimProcessMemory();
+        // show the last processed frame (the list selection would otherwise stay on frame 1)
+        var last = items.LastOrDefault(i => i.Status == "done");
+        if (last != null) { if (SelectedFile != last) SelectedFile = last; else ShowTask = ShowSelectedAsync(last); await ShowTask; }
+    }
+
+    /// <summary>Same settings the batch uses; also used to compute cache keys and to recompute a missing result. Holds no unmanaged state until a frame is processed.</summary>
+    ReconSession MakeSession() => new() { Par = main.Settings.Params.Clone(), Calibration = main.Current, CalibrationPath = main.CurrentPath, ReferencePath = WithReference ? ReferencePath : null, SystemWavefrontPath = WithReference ? null : SystemWavefrontPath };
+
+    void FillRow(FileItem it, ReconOutcome oc)
+    {
+        var st = oc.Result.Stats; it.Status = "done"; it.Power = st.PowerD.ToString("+0.000;-0.000", Inv) + " D"; it.Rms = st.RmsNm.ToString("F0", Inv) + " nm"; it.Seconds = oc.Seconds.ToString("F1", Inv) + " s";
     }
 
     void OnResult(FileItem it, ReconOutcome oc)
     {
-        var st = oc.Result.Stats; it.Status = "done"; it.Power = st.PowerD.ToString("+0.000;-0.000", Inv) + " D"; it.Rms = st.RmsNm.ToString("F0", Inv) + " nm"; it.Seconds = oc.Seconds.ToString("F1", Inv) + " s";
+        FillRow(it, oc); var st = oc.Result.Stats;
         LastPeakMb = oc.PeakWorkingSetMb;
         AppState.LastCarriers = $"fa=[{oc.CarriersUsed.Fa[0]:R}, {oc.CarriersUsed.Fa[1]:R}] fb=[{oc.CarriersUsed.Fb[0]:R}, {oc.CarriersUsed.Fb[1]:R}] ({oc.Mode})";
         AppState.LastResult = $"{it.Name}: power {st.PowerD:+0.000;-0.000} D, astig {st.AstigRmsNm:F1} nm, rms {st.RmsNm:F1} nm, PV {st.PvUm:F3} um, {oc.Seconds:F1} s, peak {oc.PeakWorkingSetMb:F0} MB ({oc.Mode})";
         AppLog.Info("processed " + AppState.LastResult);
-        cache.RemoveAll(c => c.path == it.Path); cache.Add((it.Path, oc)); while (cache.Count > CacheSize) cache.RemoveAt(0);
-        if (SelectedFile == null || SelectedFile == it || Files.Count(f => f.Status == "done") == 1) { if (SelectedFile != it) SelectedFile = it; else ShowOutcome(oc); }
+        // live preview: the frame that is selected is shown as soon as it is done (the last frame is selected at the end of the batch)
+        if (SelectedFile == null) SelectedFile = it; else if (SelectedFile == it) { showVersion++; ShowOutcome(oc); }
     }
 
-    void ShowCached(FileItem it)
+    void ClearView(string message)
     {
-        var c = cache.FirstOrDefault(x => x.path == it.Path); if (c.oc != null) { ShowOutcome(c.oc); return; }
-        shown = null; Spec = null; ResultShown?.Invoke(null); StatsText = it.Status == "done" ? "Result no longer cached (only the last " + CacheSize + " are kept in memory to save RAM) — press 'Process selected' to recompute." : "Not processed yet."; WarningText = ""; HasWarning = false; InfoText = "";
+        shown = null; Spec = null; StatsText = message; WarningText = ""; HasWarning = false; InfoText = ""; VminText = VmaxText = ""; ResultShown?.Invoke(null);
+    }
+
+    /// <summary>
+    /// Shows the result of a list row. Order: RAM (last 3) -> disk cache -> recompute with a progress indicator. Processed rows are never "lost";
+    /// rows that were not processed say so. The Zernike and 3-D tabs follow through <see cref="ResultShown"/> / <see cref="ResultPending"/>.
+    /// </summary>
+    async Task ShowSelectedAsync(FileItem? it)
+    {
+        showCts?.Cancel(); int v = ++showVersion; IsRecomputing = false;
+        if (it == null) { ClearView("No result yet."); return; }
+        if (it.Status != "done") { ClearView(it.Status.StartsWith("error") ? "Processing this frame failed: " + it.Status : it.Status is "pending" ? "Not processed yet." : $"Not processed yet ({it.Status})."); return; }
+        string key = MakeSession().CacheKey(it.Path);
+        var hit = await Task.Run(() => store.Find(key)); if (v != showVersion) return;
+        if (hit != null) { ShowOutcome(hit); return; }
+        if (main.IsBusy) { ClearView("This result is not cached any more and the app is busy — select the frame again when the current job has finished."); return; }
+        var myCts = showCts = new CancellationTokenSource(); var prev = recomputeTask; var task = RecomputeAsync(it, key, v, prev, myCts.Token); recomputeTask = task; await task;
+    }
+
+    async Task RecomputeAsync(FileItem it, string key, int v, Task prev, CancellationToken ct)
+    {
+        try { await prev; } catch { }
+        if (v != showVersion || ct.IsCancellationRequested) return;
+        string msg = $"Recomputing {it.Name} (its result is not in the cache any more)…";
+        ClearView(msg); ResultPending?.Invoke(msg); IsRecomputing = true; Progress = 0; ProgressText = msg; main.StatusMessage = msg; AppLog.Info("recompute: " + it.Path);
+        var prog = new Progress<double>(p => { if (v == showVersion) { Progress = p; main.StatusMessage = $"Recomputing {it.Name}: {p * 100:F0} %"; } });
+        var session = MakeSession();
+        try
+        {
+            var (oc, _) = await store.GetOrComputeAsync(key, c => session.ProcessFile(it.Path, prog, c), ct);
+            if (v != showVersion) return;
+            FillRow(it, oc); LastPeakMb = oc.PeakWorkingSetMb; ShowOutcome(oc); main.StatusMessage = $"Recomputed {it.Name} in {oc.Seconds:F1} s."; ProgressText = main.StatusMessage; Progress = 1;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception e) { if (v == showVersion) { ClearView("Recompute failed: " + e.Message); main.StatusMessage = "Recompute failed: " + e.Message; } AppLog.Error("recompute failed: " + it.Path, e); }
+        finally { session.Dispose(); if (v == showVersion) IsRecomputing = false; }
     }
 
     void ShowOutcome(ReconOutcome oc)
@@ -212,6 +286,7 @@ public partial class OfflineViewModel : ObservableObject
         InfoText = $"Mode: {oc.Mode}\nλ = {main.Settings.Params.Lambda * 1e9:G6} nm, grid {oc.Result.M}×{oc.Result.M}, pitch {main.Settings.Params.PitchM * 1e6:F3} µm\nCarriers fa = [{oc.CarriersUsed.Fa[0]:F6}, {oc.CarriersUsed.Fa[1]:F6}]  fb = [{oc.CarriersUsed.Fb[0]:F6}, {oc.CarriersUsed.Fb[1]:F6}]\n"
             + $"CG iterations {string.Join("/", oc.Result.Solve.CgIterations)}, LS residual {oc.Result.Solve.ResidualRad[0]:F3}/{oc.Result.Solve.ResidualRad[1]:F3} rad\nTime {oc.Seconds:F2} s (solve {t.GetValueOrDefault("solve") / 1000:F2} s), peak memory {oc.PeakWorkingSetMb:F0} MB";
         WarningText = string.Join("\n", oc.Warnings); HasWarning = oc.Warnings.Count > 0;
+        if (!AutoRange) { suppressAutoRange = true; AutoRange = true; suppressAutoRange = false; }   // a new frame starts with the automatic colour range
         RefreshMap(true); ResultShown?.Invoke(oc);
     }
 
@@ -246,7 +321,7 @@ public partial class OfflineViewModel : ObservableObject
     string EffectiveExportFolder()
     {
         if (!string.IsNullOrWhiteSpace(ExportFolder)) return ExportFolder;
-        var f = CurrentImageFolder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); return System.IO.Path.Combine(f, "qwlsi_out");
+        return AppSettings.DefaultOutputDir;
     }
 
     [RelayCommand]
@@ -278,6 +353,7 @@ public partial class OfflineViewModel : ObservableObject
         var o = Export; if (forceOpd && !o.Opd) { o = System.Text.Json.JsonSerializer.Deserialize<ExportOptions>(System.Text.Json.JsonSerializer.Serialize(Export))!; o.Opd = true; }
         ExportMessage = "Exporting…"; main.Settings.LastExportFolder = ExportFolder; main.Settings.Save();
         await Task.Run(() => { try { files = ResultExporter.Export(oc, par, o, folder, null, (f, r) => disp.Invoke(() => SavePng(f, oc)), zr); } catch (Exception e) { err = e.Message; } });
+        if (err == null) BatchNote = "";
         ExportMessage = err != null ? "Export failed: " + err : $"Exported {files.Count} file(s) to {folder}\n" + string.Join("\n", files.Select(System.IO.Path.GetFileName));
         if (err != null) AppLog.Error("export failed: " + err); else AppLog.Info($"export: {files.Count} file(s) to {folder} ({(filtered ? "Zernike-filtered" : "raw")} OPD)");
         Processor.TrimProcessMemory(); return ExportMessage;
@@ -309,4 +385,6 @@ public partial class OfflineViewModel : ObservableObject
     public ReconOutcome? Shown => shown;
     /// <summary>Raised on the UI thread whenever a different result is displayed (Zernike / 3D tabs follow it).</summary>
     public event Action<ReconOutcome?>? ResultShown;
+    /// <summary>Raised on the UI thread with a message while a missing result is being recomputed (the other tabs show it instead of a stale map).</summary>
+    public event Action<string>? ResultPending;
 }

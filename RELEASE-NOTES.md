@@ -1,5 +1,17 @@
 # QWLSI single-frame wavefront — release notes
 
+## 1.0.1 (2026-10-09) — bug-fix release
+
+* **Fixed: after *Process all* the result of most frames was "no longer cached".** Only the last 3 results were kept in memory, so with 5 or more frames the first rows showed "No result yet". Now every processed frame is stored (OPD, intensity as float32, mask as bytes) in a temporary disk cache, `%LOCALAPPDATA%\QwlsiApp\cache` (limit 2 GB, setting `CacheLimitMb`; least recently used entries are dropped first; the folder is deleted when the program exits, and folders left by a crashed session are removed at the next start). Clicking a row loads from RAM or disk; if a result is gone anyway it is **recomputed automatically** with a progress bar in the status bar. The Zernike and 3-D tabs follow the selected row through the same path and show "Recomputing…" instead of a stale map.
+* After a batch the **last processed frame is selected and shown**.
+* The **colour range is reset** (back to automatic) whenever another frame is shown.
+* The default **output folder is `Documents\QwlsiApp\Output`** (a temporary folder remembered in the settings by earlier builds is ignored).
+* After a batch with *auto-export* off a note says that **nothing has been saved yet** (only the temporary viewer cache exists).
+* Tests: the golden comparison now uses a pristine copy of the original Python `calibration.json` that ships with the tests (`src/Qwlsi.Tests/data/calibration_python_original.json`) instead of reading the file from `recon_single_frame\`, which the app's *Save as calibration.json* had overwritten on 2026-10-07. New tests: 5-frame select-each-row regression, disk-cache round trip / size limit / clean-up / stale sweep, cache-key sensitivity, carrier-label invariance.
+* No change to the reconstruction algorithm or its results.
+
+**fa / fb in the status bar.** A calibration made by the app can label the two orthogonal carriers the other way round from another `calibration.json`: `(fa, fb)` → `(fb, −fa)`. The carrier search takes the stronger of the two spectral peaks as "a" and defines "b" as "a" rotated by −90°; which peak is stronger depends on the flat frame. Both labellings give the same wavefront (measured: 0.007 nm rms difference on the golden frame). Different *values* (a few 1e-5 cyc/px, i.e. a different flat frame or a changed setup) are not equivalent: they change the lens power by tenths of a dioptre, so keep one calibration per optical setup.
+
 ## 1.0.0 (2026-10-07)
 
 First release. Offline reconstruction of the wavefront (OPD and complex field) from a single raw QWLSI frame — a C# / .NET 8 / WPF port of the validated Python/MATLAB code, **numerically identical to the Python reference** (OPD difference ≤ 0.01 nm rms, intensity 0.0000 %, complex field ≤ 0.01 %, lens power within 0.001 D).

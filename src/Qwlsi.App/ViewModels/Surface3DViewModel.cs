@@ -46,6 +46,7 @@ public partial class Surface3DViewModel : ObservableObject
     {
         main = m; Cmap = main.Offline.Cmap;
         m.Offline.ResultShown += oc => { outcome = oc; autoExagDone = false; _ = BuildAsync(true); };
+        m.Offline.ResultPending += msg => { Info = msg; };
         m.ZernikeVm.RemovalChanged += () => { if (Source == SurfaceSource.ZernikeFiltered) _ = BuildAsync(false); };
         UpdateExagText();
     }

@@ -19,7 +19,10 @@ public sealed class GoldenFixture : IDisposable
         var d = new DirectoryInfo(AppContext.BaseDirectory); string? root = Environment.GetEnvironmentVariable("QWLSI_DATA");
         while (root == null && d != null) { if (Directory.Exists(Path.Combine(d.FullName, "recon_single_frame"))) root = d.FullName; d = d.Parent; }
         Root = root ?? @"H:\caliberation\Phase_imager_cal\New";
-        Results = Path.Combine(Root, "recon_single_frame", "results"); CalibPath = Path.Combine(Root, "recon_single_frame", "calibration.json");
+        Results = Path.Combine(Root, "recon_single_frame", "results");
+        // Pristine copy of the Python-written calibration.json that produced the golden results. The file in recon_single_frame\ is not used: the app's
+        // "Save as calibration.json" overwrote it on 2026-10-07 13:31 with a recalibration of another flat frame (see RELEASE-NOTES 1.0.1).
+        CalibPath = Path.Combine(AppContext.BaseDirectory, "data", "calibration_python_original.json");
         Calib = Calibration.Load(CalibPath); proc = new Processor(Par);
     }
 

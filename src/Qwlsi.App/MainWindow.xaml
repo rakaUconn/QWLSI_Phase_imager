@@ -45,6 +45,10 @@
                             </StackPanel>
                             <ProgressBar Height="14" Minimum="0" Maximum="1" Value="{Binding Progress}"/>
                             <TextBlock Text="{Binding ProgressText}" TextWrapping="Wrap" Margin="0,3,0,0" Foreground="#444" FontSize="12"/>
+                            <Border Margin="0,4,0,0" Padding="6,4" Background="#FFF4D6" BorderBrush="#E0C068" BorderThickness="1" CornerRadius="3">
+                                <Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding BatchNote}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style>
+                                <TextBlock Text="{Binding BatchNote}" TextWrapping="Wrap" FontSize="12" Foreground="#6A4A00"/>
+                            </Border>
                         </StackPanel>
                         <ListView x:Name="FileList" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}" AllowDrop="True" Drop="OnDropFiles" Margin="0,0,0,8" BorderBrush="{StaticResource Border}">
                             <ListView.View>
@@ -112,7 +116,7 @@
                                     <CheckBox Content="XYZ: drop pixels outside the pupil" IsChecked="{Binding Export.XyzDropMasked}"/>
                                     <CheckBox Content="export OPD with the Zernike terms of the Zernike tab removed (recorded in header + sidecar)" IsChecked="{Binding DataContext.Settings.ExportFilteredOpd, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,4,0,0"/>
                                     <TextBlock Text="Output folder" Margin="0,8,0,2" FontWeight="SemiBold"/>
-                                    <DockPanel><Button DockPanel.Dock="Right" Content="…" Padding="6,0" Command="{Binding BrowseExportFolderCommand}" Margin="4,0,0,0"/><TextBox Text="{Binding ExportFolder}" ToolTip="empty = &lt;image folder&gt;\qwlsi_out"/></DockPanel>
+                                    <DockPanel><Button DockPanel.Dock="Right" Content="…" Padding="6,0" Command="{Binding BrowseExportFolderCommand}" Margin="4,0,0,0"/><TextBox Text="{Binding ExportFolder}" ToolTip="default: Documents\QwlsiApp\Output"/></DockPanel>
                                     <CheckBox Content="auto-export every frame during batch (+ summary.csv)" IsChecked="{Binding DataContext.Settings.AutoExportBatch, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,6,0,4"/>
                                     <WrapPanel Margin="0,2,0,0">
                                         <Button Content="Export current" Command="{Binding ExportCurrentCommand}" FontWeight="SemiBold" Background="#DCE9F8" Margin="0,0,6,4"/>
@@ -206,7 +210,7 @@
                                 </Grid>
                                 <CheckBox Content="comment header in text files (the removed terms are always in the sidecar JSON)" IsChecked="{Binding Offline.Export.Matrix.Header}" Margin="0,4,0,0"/>
                                 <TextBlock Text="Output folder" Margin="0,6,0,2" FontWeight="SemiBold"/>
-                                <TextBox Text="{Binding Offline.ExportFolder}" ToolTip="empty = image folder + qwlsi_out (same folder as the Offline tab)"/>
+                                <TextBox Text="{Binding Offline.ExportFolder}" ToolTip="default: Documents\QwlsiApp\Output (same folder as the Offline tab)"/>
                                 <WrapPanel Margin="0,8,0,0">
                                     <Button Content="Export filtered OPD" Command="{Binding ExportFilteredCommand}" FontWeight="SemiBold" Background="#DCE9F8" Margin="0,0,6,4"/>
                                     <Button Content="Export raw OPD" Command="{Binding ExportRawCommand}" Margin="0,0,6,4"/>
@@ -364,7 +368,12 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <Button Grid.RowSpan="2" Grid.Column="2" Content="About / diagnostics" Click="OnAbout" Padding="8,2" Margin="12,0,0,0" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding CalibrationText}" Style="{StaticResource Mono}" FontSize="11" TextTrimming="CharacterEllipsis" Grid.ColumnSpan="2"/>
-                <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                <DockPanel Grid.Row="1">
+                    <ProgressBar DockPanel.Dock="Right" Width="150" Height="12" Minimum="0" Maximum="1" Value="{Binding Offline.Progress, Mode=OneWay}" Margin="8,0,12,0" ToolTip="recomputing a result that is no longer cached">
+                        <ProgressBar.Visibility><Binding Path="Offline.IsRecomputing"><Binding.Converter><BooleanToVisibilityConverter/></Binding.Converter></Binding></ProgressBar.Visibility>
+                    </ProgressBar>
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding MemoryText}" Style="{StaticResource Mono}" FontSize="11" Foreground="#555"/>
             </Grid>
         </Border>

@@ -1,0 +1,12 @@
+{
+ "fa": [
+  0.2796747289760845,
+  -0.18136218887192246
+ ],
+ "fb": [
+  -0.1813662601844535,
+  -0.27973829485883484
+ ],
+ "source": "ref.tif",
+ "note": "carrier vectors [cyc/px] such that a flat wave gives zero differential-phase gradient"
+}

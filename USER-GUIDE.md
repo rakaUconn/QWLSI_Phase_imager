@@ -1,4 +1,4 @@
-# QWLSI single-frame wavefront 1.0.0 — user guide
+# QWLSI single-frame wavefront 1.0.1 — user guide
 
 Reconstructs the wavefront (optical path difference, OPD, and the complex field) from **one raw quadri-wave lateral shearing (QWLSI) frame**. It is a C# port of the validated Python/MATLAB reconstruction and reproduces the Python results to 0.01 nm.
 
@@ -12,11 +12,11 @@ Reconstructs the wavefront (optical path difference, OPD, and the complex field)
 | Graphics | Optional. The 3-D view uses Direct3D 11; without a usable GPU it falls back to software (WARP) rendering. |
 
 ## 2. Installation
-**Installer (recommended):** run `QwlsiApp-1.0.0-setup.exe`. It installs **for the current user only — no administrator rights**, to `%LOCALAPPDATA%\Programs\QwlsiApp`, adds a Start-menu entry and (optionally) a desktop shortcut, and registers an uninstaller (Settings → Apps). The installer is not code-signed, so Windows SmartScreen may show "unknown publisher": choose *More info → Run anyway*.
+**Installer (recommended):** run `QwlsiApp-1.0.1-setup.exe`. It installs **for the current user only — no administrator rights**, to `%LOCALAPPDATA%\Programs\QwlsiApp`, adds a Start-menu entry and (optionally) a desktop shortcut, and registers an uninstaller (Settings → Apps). The installer is not code-signed, so Windows SmartScreen may show "unknown publisher": choose *More info → Run anyway*.
 
-**Portable zip:** unzip `QwlsiApp-1.0.0-portable.zip` anywhere and run `QwlsiApp.exe`. Nothing is written outside the folder except your settings and logs in `%APPDATA%\QwlsiApp`.
+**Portable zip:** unzip `QwlsiApp-1.0.1-portable.zip` anywhere and run `QwlsiApp.exe`. Nothing is written outside the folder except your settings and logs in `%APPDATA%\QwlsiApp` and the temporary result cache in `%LOCALAPPDATA%\QwlsiApp\cache` (deleted when the program exits).
 
-**Examples (optional):** `QwlsiApp-1.0.0-examples.zip` contains `calibration.json`, the flat/reference frame, the system wavefront `ref_OPD_m.npy`, six lens frames and the Python results to compare with (see its `README.md`). Process one frame and compare the numbers to confirm the installation.
+**Examples (optional):** `QwlsiApp-1.0.1-examples.zip` contains `calibration.json`, the flat/reference frame, the system wavefront `ref_OPD_m.npy`, six lens frames and the Python results to compare with (see its `README.md`). Process one frame and compare the numbers to confirm the installation.
 
 Uninstall: Settings → Apps, or the Start-menu *Uninstall* entry. Your settings and logs in `%APPDATA%\QwlsiApp` are kept; delete that folder for a full clean-up.
 
@@ -59,7 +59,7 @@ For a wavelength other than 650 nm change **λ** in *Settings*. The shear scales
 * **Matrix .txt/.csv** — 1504 × 1504 numbers, one image row per line; defaults: **nm, tab, 3 decimals, NaN outside the pupil, no header** (units nm/µm/m/waves, delimiter tab/space/comma, NaN or 0). Loads with `readmatrix` (MATLAB) or `numpy.loadtxt`.
 * **XYZ list** (x_mm, y_mm, OPD; origin = pupil centroid), **MATLAB .mat** (v5), **NumPy .npy** (OPD in metres, complex64 field), **float32 TIFF**, **PNG preview** with colour bar.
 * Every export also writes a sidecar `*_export.json` with all parameters used (λ, pitch, carriers, mode, options, statistics, removed Zernike terms).
-* *auto-export every frame during batch* writes each frame as it finishes plus `summary.csv` (lens power, astigmatism, RMS, PV, time, peak memory per frame). The default folder is `qwlsi_out` next to the frames.
+* *auto-export every frame during batch* writes each frame as it finishes plus `summary.csv` (lens power, astigmatism, RMS, PV, time, peak memory per frame). The default folder is `Documents\QwlsiApp\Output`. With auto-export off, nothing is saved until you export: after a batch the program says so. Every processed frame stays viewable (click its row) from a temporary disk cache (`%LOCALAPPDATA%\QwlsiApp\cache`, 2 GB limit, deleted on exit); if a result is missing it is recomputed with a progress bar.
 
 ## 9. Diagnostics and reporting a problem
 **About / diagnostics** (bottom right) shows the version, .NET version, MKL status, GPU or software-rendering mode, calibration file in use, parameters, last result and peak memory. **Copy diagnostics** puts all of it (plus the settings in use and the last log lines) on the clipboard — paste it into your bug report. Logs are in `%APPDATA%\QwlsiApp\logs` (one file per day, kept 30 days). After an unexpected error the program writes `crash-….txt` there (exception, diagnostics and settings) and offers to copy it.

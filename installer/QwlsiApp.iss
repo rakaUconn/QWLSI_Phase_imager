@@ -1,7 +1,7 @@
 ; Inno Setup 6 script - QWLSI single-frame wavefront. Per-user install (no administrator rights).
-; Build:  ISCC.exe /DAppVer=1.0.0 /DSrcDir=<publish folder> /DOutDir=<output folder> QwlsiApp.iss   (tools\build-release.ps1 does this)
+; Build:  ISCC.exe /DAppVer=1.0.1 /DSrcDir=<publish folder> /DOutDir=<output folder> QwlsiApp.iss   (tools\build-release.ps1 does this)
 #ifndef AppVer
-  #define AppVer "1.0.0"
+  #define AppVer "1.0.1"
 #endif
 #ifndef SrcDir
   #define SrcDir "..\dist\publish"

@@ -31,6 +31,7 @@
 
   <ItemGroup>
     <None Include="data\python_zernike_order10.json" CopyToOutputDirectory="PreserveNewest" Link="data\python_zernike_order10.json" />
+    <None Include="data\calibration_python_original.json" CopyToOutputDirectory="PreserveNewest" Link="data\calibration_python_original.json" />
   </ItemGroup>
 
 </Project>

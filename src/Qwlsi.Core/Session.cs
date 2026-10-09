@@ -60,6 +60,9 @@ public sealed class ReconSession : IDisposable
         return proc;
     }
 
+    /// <summary>Cache key of this frame under the current settings (see <see cref="ResultKey"/>).</summary>
+    public string CacheKey(string path) => ResultKey.Make(this, path);
+
     public static (int w, int h) ReadSize(string tiffPath)
     {
         using var t = BitMiracle.LibTiff.Classic.Tiff.Open(tiffPath, "r") ?? throw new IOException("cannot open " + tiffPath);

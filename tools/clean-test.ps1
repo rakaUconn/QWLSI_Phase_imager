@@ -10,7 +10,7 @@ param(
     [ValidateSet('Portable', 'Installer')][string]$Mode = 'Portable',
     [string]$Release = (Join-Path (Split-Path $PSScriptRoot -Parent) 'dist\release'),
     [string]$Work = 'C:\QwlsiCleanTest',
-    [string]$Version = '1.0.0',
+    [string]$Version = '1.0.1',
     [string]$MklIsa = ''          # e.g. AVX2 / SSE4_2 to force another MKL kernel set (checks the trimmed MKL files)
 )
 $ErrorActionPreference = 'Stop'

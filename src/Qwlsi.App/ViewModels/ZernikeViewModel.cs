@@ -82,6 +82,7 @@ public partial class ZernikeViewModel : ObservableObject
         }
         var saved = m.Settings.ZernikeRemovedJ; ApplySelection(Enumerable.Range(0, 66).Select(j => saved.Contains(j)).ToArray(), false);
         m.Offline.ResultShown += oc => { source = oc; _ = RefitAsync(); };
+        m.Offline.ResultPending += msg => { StatsText = msg; };      // same logic as the Offline tab: a missing result is being recomputed
     }
 
     public bool[] Selection() { var f = new bool[66]; foreach (var g in Groups) foreach (var c in g.Children) f[c.Term.J] = c.IsChecked; return f; }

@@ -1,10 +1,10 @@
 <Project>
   <!-- Single source of the release version: assemblies, About box and the installer (installer/QwlsiApp.iss reads it from here at build time via build-release.ps1). -->
   <PropertyGroup>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
+    <InformationalVersion>1.0.1</InformationalVersion>
     <Product>QWLSI single-frame wavefront</Product>
     <Company>UH Physiological Optics Lab</Company>
     <Copyright>Copyright (c) 2026 UH Physiological Optics Lab</Copyright>

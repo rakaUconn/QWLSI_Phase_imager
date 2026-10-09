@@ -50,8 +50,14 @@ public sealed class AppSettings
     public ZernikeOrientation ZernikeOrientation { get; set; } = new();
     public int[] ZernikeRemovedJ { get; set; } = new[] { 0, 1, 2 };
     public bool ExportFilteredOpd { get; set; }
+    /// <summary>Size limit of the temporary result cache on disk [MB] (see <see cref="CacheDir"/>).</summary>
+    public int CacheLimitMb { get; set; } = 2048;
 
     public static string Dir => Environment.GetEnvironmentVariable("QWLSI_APPDATA") is { Length: > 0 } d ? d : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "QwlsiApp");
+    /// <summary>Temporary result cache root: %LOCALAPPDATA%\QwlsiApp\cache (inside QWLSI_APPDATA when that is set, e.g. by the self-test).</summary>
+    public static string CacheDir => Environment.GetEnvironmentVariable("QWLSI_APPDATA") is { Length: > 0 } d ? Path.Combine(d, "cache") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QwlsiApp", "cache");
+    /// <summary>Default export folder: Documents\QwlsiApp\Output.</summary>
+    public static string DefaultOutputDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "QwlsiApp", "Output");
     public static string FilePath => Path.Combine(Dir, "settings.json");
     static readonly JsonSerializerOptions Js = new() { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
 
