@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Qwlsi.Core\Qwlsi.Core.csproj" />
+    <ProjectReference Include="..\Qwlsi.Video\Qwlsi.Video.csproj" />
   </ItemGroup>
 
 </Project>

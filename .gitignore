@@ -4,3 +4,4 @@ obj/
 .vs/
 dist/
 TestResults/
+third_party/ffmpeg/

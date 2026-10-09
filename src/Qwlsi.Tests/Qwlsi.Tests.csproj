@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Qwlsi.Core\Qwlsi.Core.csproj" />
     <ProjectReference Include="..\Qwlsi.Camera\Qwlsi.Camera.csproj" />
+    <ProjectReference Include="..\Qwlsi.Video\Qwlsi.Video.csproj" />
   </ItemGroup>
 
   <ItemGroup>
