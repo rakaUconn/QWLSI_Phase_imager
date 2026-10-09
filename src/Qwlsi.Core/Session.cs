@@ -187,7 +187,7 @@ public static class ResultExporter
         baseName ??= Path.GetFileNameWithoutExtension(oc.File); string bp = Path.Combine(outDir, baseName); var mo = o.Matrix;
         double sc = Writers.UnitScale(mo.Unit, par.Lambda); string un = Writers.UnitName(mo.Unit); string ext = mo.Delim == Delimiter.Comma ? ".csv" : ".txt";
         var hdr = HeaderLines(oc, par, mo);
-        if (zr != null) { hdr.Add($"zernike removal: order {zr.Fit.Order}, joint masked least squares; convention: {zr.Fit.Convention}"); hdr.Add("zernike removed: " + zr.Description); hdr.Add($"rms before/after: {zr.RmsBeforeM * 1e9:F2} / {zr.RmsAfterM * 1e9:F2} nm; PV before/after: {zr.PvBeforeM * 1e6:F4} / {zr.PvAfterM * 1e6:F4} um"); }
+        if (zr != null) { hdr.Add($"zernike removal: order {zr.Fit.Order}, joint masked least squares; convention: {zr.Fit.Convention}"); hdr.Add("zernike pupil: " + zr.Fit.PupilDescription); hdr.Add("zernike removed: " + zr.Description); hdr.Add($"rms before/after: {zr.RmsBeforeM * 1e9:F2} / {zr.RmsAfterM * 1e9:F2} nm; PV before/after: {zr.PvBeforeM * 1e6:F4} / {zr.PvAfterM * 1e6:F4} um"); }
         else hdr.Add("zernike removal: none (raw OPD, piston removed by the solver)");
         void Add(string f) => files.Add(f);
 
@@ -243,7 +243,7 @@ public static class ResultExporter
             stats = r.Stats, solver = new { cg_iterations = r.Solve.CgIterations, residual_rad = r.Solve.ResidualRad }, seconds = oc.Seconds, peak_working_set_mb = oc.PeakWorkingSetMb,
             zernike_removal = zr == null ? null : new
             {
-                convention = zr.Fit.Convention, fit_order = zr.Fit.Order, fit = "joint masked least squares over the mask-fitted circle (centroid, radius = sqrt(area/pi)), pixels with rho<=1",
+                convention = zr.Fit.Convention, pupil = zr.Fit.PupilDescription, fit_order = zr.Fit.Order, fit = "joint masked least squares over the mask-fitted circle (centroid, radius = sqrt(area/pi)), pixels with rho<=1",
                 circle = new { cx_px = zr.Fit.Cx, cy_px = zr.Fit.Cy, radius_px = zr.Fit.RadiusPx, radius_mm = zr.Fit.RadiusM * 1e3 },
                 removed = Enumerable.Range(0, zr.Removed.Length).Where(j => zr.Removed[j]).Select(j => new { ansi_j = j, noll_j = zr.Fit.Terms[j].Noll, n = zr.Fit.Terms[j].N, m = zr.Fit.Terms[j].M, name = zr.Fit.Terms[j].Name, coefficient_nm = zr.Fit.Coeff[j] * 1e9, diopters = double.IsNaN(zr.Fit.Diopters(j)) ? (double?)null : zr.Fit.Diopters(j) }).ToArray(),
                 rms_before_nm = zr.RmsBeforeM * 1e9, rms_after_nm = zr.RmsAfterM * 1e9, pv_before_um = zr.PvBeforeM * 1e6, pv_after_um = zr.PvAfterM * 1e6,

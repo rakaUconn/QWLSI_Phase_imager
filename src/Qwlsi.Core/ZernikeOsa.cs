@@ -154,6 +154,29 @@ public static class ZernikeTools
         f.Coeff = SolveSym(ata, atb, K); f.FitPixels = used; return f;
     }
 
+    /// <summary>
+    /// The common circle of a set of masks: centroid and sqrt(area/pi) of the INTERSECTION (logical AND) of all masks (same rule as the per-frame circle). Streaming: `masks` may yield one
+    /// mask at a time. M is taken from the first mask (must be square). Throws InvalidOperationException when there is no mask or the intersection is empty.
+    /// </summary>
+    public static (ZernikeCircle circle, long intersectionPixels) CommonCircle(IEnumerable<byte[]> masks)
+    {
+        byte[]? acc = null; int M = 0;
+        foreach (var m in masks)
+        {
+            if (acc == null) { M = (int)Math.Round(Math.Sqrt(m.Length)); if ((long)M * M != m.Length) throw new ArgumentException("mask is not square"); acc = new byte[m.Length]; for (long i = 0; i < m.Length; i++) acc[i] = (byte)(m[i] != 0 ? 1 : 0); }
+            else { if (m.Length != acc.Length) throw new ArgumentException("masks differ in size"); for (long i = 0; i < m.Length; i++) if (m[i] == 0) acc[i] = 0; }
+        }
+        if (acc == null) throw new InvalidOperationException("common circle: no masks");
+        double sy = 0, sx = 0; long cnt = 0;
+        for (int y = 0; y < M; y++) for (int x = 0; x < M; x++) if (acc[(long)y * M + x] != 0) { sy += y; sx += x; cnt++; }
+        if (cnt == 0) throw new InvalidOperationException("common circle: the intersection of all masks is empty (the pupils do not overlap)");
+        return (new ZernikeCircle(sx / cnt, sy / cnt, Math.Sqrt(cnt / Math.PI)), cnt);
+    }
+
+    /// <summary>Overload with an explicit grid size (validates every mask against M).</summary>
+    public static (ZernikeCircle circle, long intersectionPixels) CommonCircle(IEnumerable<byte[]> masks, int M)
+        => CommonCircle(masks.Select(m => m.Length == (long)M * M ? m : throw new ArgumentException($"mask length {m.Length} != {M}x{M}")));
+
     static double[] SolveSym(double[] A, double[] b, int n)   // Gaussian elimination with partial pivoting
     {
         var a = (double[])A.Clone(); var x = (double[])b.Clone();
