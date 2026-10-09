@@ -1,0 +1,10 @@
+FFmpeg (ffmpeg.exe, LGPL build) - H.264 / video encoding for the Video tab
+ffmpeg.exe is a separate executable (FFmpeg n8.1.3-16-ge0a878dd70, BtbN FFmpeg-Builds win64 lgpl static build of 2026-10-09, tag autobuild-2026-10-09-14-16) that is started as a child process to write MP4 files; it is NOT linked into QwlsiApp and is not modified. Copyright (c) 2000-2026 the FFmpeg developers. License: GNU Lesser General Public License version 3 (the build is configured with --enable-version3 and WITHOUT --enable-gpl / --enable-nonfree; libx264 and libx265 are disabled).
+The full license text ships next to the executable as ffmpeg\LICENSE.txt (and the build identification as ffmpeg\VERSION.txt).
+Corresponding source: https://ffmpeg.org/ and https://github.com/FFmpeg/FFmpeg (exact commit e0a878dd70); build scripts: https://github.com/BtbN/FFmpeg-Builds (tag autobuild-2026-10-09-14-16). The binary is the unmodified upstream build.
+===
+You may replace ffmpeg.exe with another build of FFmpeg (put it in the ffmpeg folder next to QwlsiApp.exe or set the environment variable QWLSI_FFMPEG to its path); the program uses only its command-line interface.
+
+H.264 encoding: QwlsiApp asks ffmpeg for the first working H.264 encoder of the machine - the Windows Media Foundation encoder (h264_mf), the GPU vendor encoder (NVIDIA NVENC, Intel Quick Sync, AMD AMF) or OpenH264 if its library is installed. libx264 is not used or distributed. Patent licences for H.264 are the responsibility of the encoder provider (Microsoft / the GPU vendor / Cisco). GIF, AVI (MJPEG) and PNG-sequence output do not use ffmpeg.
+
+This library is free software; you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License (ffmpeg\LICENSE.txt) for more details.

@@ -44,6 +44,7 @@ RestartApplications=no
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
+; the publish folder includes ffmpeg\ (LGPL ffmpeg.exe + LICENSE.txt + VERSION.txt, copied there by tools\build-release.ps1) - recursesubdirs installs it per user like everything else
 Source: "{#SrcDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]

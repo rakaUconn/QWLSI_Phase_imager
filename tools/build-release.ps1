@@ -29,6 +29,16 @@ Write-Host '== docs'
 if (-not (Test-Path (Join-Path $root 'THIRD-PARTY-NOTICES.txt'))) { python tools\gen_notices.py }
 foreach ($f in 'USER-GUIDE.md', 'RELEASE-NOTES.md', 'THIRD-PARTY-NOTICES.txt') { Copy-Item (Join-Path $root $f) $pub }
 
+Write-Host '== ffmpeg (LGPL build for the Video tab; separate executable, licence text shipped beside it)'
+$ffsrc = Join-Path $root 'third_party\ffmpeg'
+if (-not ((Test-Path (Join-Path $ffsrc 'ffmpeg.exe')) -and (Test-Path (Join-Path $ffsrc 'LICENSE.txt')) -and (Test-Path (Join-Path $ffsrc 'VERSION.txt')))) { & (Join-Path $root 'tools\get-ffmpeg.ps1') }
+foreach ($f in 'ffmpeg.exe', 'LICENSE.txt', 'VERSION.txt') { if (-not (Test-Path (Join-Path $ffsrc $f))) { throw "third_party\ffmpeg\$f is missing (run tools\get-ffmpeg.ps1)" } }
+$ffdst = Join-Path $pub 'ffmpeg'; New-Item -ItemType Directory -Force $ffdst | Out-Null
+foreach ($f in 'ffmpeg.exe', 'LICENSE.txt', 'VERSION.txt') { Copy-Item (Join-Path $ffsrc $f) $ffdst -Force }
+$ffconf = (& (Join-Path $ffdst 'ffmpeg.exe') -hide_banner -buildconf) -join ' '
+if ($ffconf -match '--enable-gpl' -or $ffconf -match '--enable-nonfree') { throw 'bundled ffmpeg is a GPL / nonfree build: the release must use the LGPL build' }
+Write-Host ("   ffmpeg.exe {0:N0} MB, LGPL build" -f ((Get-Item (Join-Path $ffdst 'ffmpeg.exe')).Length / 1MB))
+
 Write-Host '== content checks'
 $bad = Get-ChildItem $pub -Recurse -File | Where-Object { $_.Name -match 'xiapi|ximea|xiApi|fftw' }
 if ($bad) { throw "forbidden files in the release: $($bad.Name -join ', ')" }
