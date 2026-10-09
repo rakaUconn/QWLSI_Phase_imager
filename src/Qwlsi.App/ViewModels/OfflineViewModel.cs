@@ -215,6 +215,40 @@ public partial class OfflineViewModel : ObservableObject
         if (last != null) { if (SelectedFile != last) SelectedFile = last; else ShowTask = ShowSelectedAsync(last); await ShowTask; }
     }
 
+    // ------------------------------------------------------------------------------------------------ results for other tabs (Zernike all-frames table, Video)
+    readonly SemaphoreSlim computeGate = new(1, 1);
+
+    /// <summary>Cache key of a row under the current settings (a ReconSession without a processed frame holds nothing to dispose).</summary>
+    string KeyOf(FileItem it) => MakeSession().CacheKey(it.Path);
+
+    /// <summary>Rows that have a result (status "done"), in list order.</summary>
+    public List<FileItem> ProcessedFiles() => Files.Where(f => f.Status == "done").ToList();
+
+    /// <summary>Result of a processed row: RAM -> disk cache -> recompute (one recompute at a time). Callable from background threads; never touches the viewer.</summary>
+    public ReconOutcome LoadResult(FileItem it, CancellationToken ct = default)
+    {
+        string key = KeyOf(it);
+        var hit = store.Find(key); if (hit != null) return hit;
+        computeGate.Wait(ct);
+        try
+        {
+            hit = store.Find(key); if (hit != null) return hit;
+            using var s = MakeSession(); var oc = s.ProcessFile(it.Path, null, ct); store.Add(key, oc); return oc;
+        }
+        finally { computeGate.Release(); }
+    }
+
+    /// <summary>Only the pupil mask of a processed row (cheap when it is in the disk cache; recomputes like <see cref="LoadResult"/> otherwise).</summary>
+    public byte[]? LoadMask(FileItem it, CancellationToken ct = default)
+    {
+        string key = KeyOf(it);
+        return store.FindMask(key) ?? LoadResult(it, ct).Result.Mask;
+    }
+
+    /// <summary>Loaders in the shape the Core batch code wants (name, load, loadMask).</summary>
+    public List<(string name, Func<CancellationToken, ReconOutcome> load, Func<CancellationToken, byte[]?>? loadMask)> FrameLoaders(IReadOnlyList<FileItem> items)
+        => items.Select(it => (it.Name, (Func<CancellationToken, ReconOutcome>)(ct => LoadResult(it, ct)), (Func<CancellationToken, byte[]?>?)(ct => LoadMask(it, ct)))).ToList();
+
     /// <summary>Same settings the batch uses; also used to compute cache keys and to recompute a missing result. Holds no unmanaged state until a frame is processed.</summary>
     ReconSession MakeSession() => new() { Par = main.Settings.Params.Clone(), Calibration = main.Current, CalibrationPath = main.CurrentPath, ReferencePath = WithReference ? ReferencePath : null, SystemWavefrontPath = WithReference ? null : SystemWavefrontPath };
 
