@@ -155,6 +155,39 @@ static class SelfTest
                 var pp = System.Diagnostics.Process.GetCurrentProcess(); pp.Refresh(); log.Add($"MEM peak working set of the whole process so far: {pp.PeakWorkingSet64 / 1048576} MB (peak private {pp.PeakPagedMemorySize64 / 1048576} MB)");
                 off.SelectedFile = off.Files.Last(); await off.ShowTask; await Idle();
             }
+            {   // 1.1.0: Zernike all-frames table + Video tab through the real view models
+                var za = vm.ZernikeAll; var vid = vm.Video; var off = vm.Offline; var peak = () => { var pp = System.Diagnostics.Process.GetCurrentProcess(); pp.Refresh(); return pp.PeakWorkingSet64 / 1048576; };
+                vm.SelectedTab = 1; await Idle(); vm.ZernikeVm.SelectedPreset = "+ defocus"; await Task.Delay(1500); await Idle();
+                var sw1 = System.Diagnostics.Stopwatch.StartNew(); await za.ApplyAllCommand.ExecuteAsync(null); await Idle(); await Task.Delay(500); await Idle();
+                log.Add($"ZALL per-frame table: {za.Rows.Count(r => !r.IsSummary)} frame rows + {za.Rows.Count(r => r.IsSummary)} summary rows, {za.ColumnDefs.Count} numeric columns, grid columns {win.AllGrid.Columns.Count}, {sw1.Elapsed.TotalSeconds:F1} s; {za.Message}");
+                if (za.Table != null && za.Rows.Count > 0) { var r0 = za.Table.Rows[0]; log.Add($"ZALL first row {r0.Name}: power {r0.PowerD:F4} D, astig {r0.AstigRmsNm:F1} nm @ {r0.AstigAxisDeg:F1}°, rms {r0.RmsBeforeNm:F1} -> {r0.RmsAfterNm:F1} nm"); }
+                za.SortBy("rms_after_nm"); log.Add("ZALL sorted by rms_after_nm ascending: " + string.Join(", ", za.Rows.Select(r => r.Name))); za.SortBy("rms_after_nm"); log.Add("ZALL descending: " + string.Join(", ", za.Rows.Select(r => r.Name)));
+                za.SelectFrameNumber(Math.Min(2, za.Items.Count)); await Task.Delay(2500); await Idle();
+                log.Add($"ZALL clicked frame: maps original={(za.OriginalSpec != null)}, removed={(za.RemovedSpec != null)}, filtered={(za.FilteredSpec != null)}; selected file = {off.SelectedFile?.Name}; marker {za.MarkerFrame}; trend series {za.TrendSeries?.Count}; caption: {za.MapsCaption}");
+                win.ZernikeSubTabs.SelectedIndex = 1; await Idle(); await Task.Delay(300); await Idle(); Shot("20_zernike_all_frames");
+                za.CommonCircle = true; var sw2 = System.Diagnostics.Stopwatch.StartNew(); await za.ApplyAllCommand.ExecuteAsync(null); await Idle();
+                log.Add($"ZALL common circle: {za.CircleInfo} ({sw2.Elapsed.TotalSeconds:F1} s); rows with the same circle: {(za.Table != null && za.Table.Rows.Select(r => (r.CircleCx, r.CircleCy, r.CircleRadiusPx)).Distinct().Count() == 1)}");
+                off.ExportFolder = Path.Combine(outDir, "zernike_all"); var sw3 = System.Diagnostics.Stopwatch.StartNew(); await za.ExportAllFilteredCommand.ExecuteAsync(null); await Idle();
+                log.Add($"ZALL export all filtered: {za.Message} ({sw3.Elapsed.TotalSeconds:F1} s), files in folder: {(Directory.Exists(off.ExportFolder) ? Directory.GetFiles(off.ExportFolder).Length : 0)}"); ZernikeTableCsv.Write(Path.Combine(outDir, "zernike_table_selftest.csv"), za.Table!);
+                za.CommonCircle = false; await za.ApplyAllCommand.ExecuteAsync(null); await Idle(); win.ZernikeSubTabs.SelectedIndex = 0;
+
+                vm.SelectedTab = 3; await Idle(); vid.RefreshFrames(); await Idle();
+                log.Add($"VIDEO frames: {vid.FramesText}; ffmpeg: {vid.FfmpegStatus.Replace("\n", " | ")}"); off.ExportFolder = Path.Combine(outDir, "video");
+                vid.Fps = 10; vid.StripPlot = true; vid.StripValue = vid.StripValues[0]; vid.Panel2 = vid.OptionalPanelChoices[2]; vid.Panel3 = vid.OptionalPanelChoices[4]; vid.Panel4 = vid.OptionalPanelChoices[7];   // filtered OPD, transmittance... see list order
+                vid.OutputPath = Path.Combine(outDir, "video", "sequence_4panels_1080p.mp4"); long m0 = peak();
+                await vid.RenderCommand.ExecuteAsync(null); await Idle(); log.Add($"VIDEO 4 panels + strip plot, MP4 1080p: {vid.LastRenderSeconds:F1} s; {vid.Message.Replace("\n", " | ")}");
+                await vid.PreviewCommand.ExecuteAsync(null); await Idle(); await Task.Delay(500); await Idle(); log.Add($"VIDEO preview: {vid.PreviewInfo}; estimate: {vid.Estimate}"); Shot("21_video_tab");
+                vid.Panel2 = vid.OptionalPanelChoices[0]; vid.Panel3 = vid.OptionalPanelChoices[0]; vid.Panel4 = vid.OptionalPanelChoices[0]; vid.StripPlot = false; vid.OutputPath = Path.Combine(outDir, "video", "sequence_opd_1080p.mp4");
+                await vid.RenderCommand.ExecuteAsync(null); await Idle(); log.Add($"VIDEO 1 panel OPD, MP4 1080p: {vid.LastRenderSeconds:F1} s; {vid.Message.Replace("\n", " | ")}");
+                vid.Format = vid.Formats[1]; vid.OutputPath = Path.Combine(outDir, "video", "sequence_opd.gif"); vid.Resolution = vid.Resolutions[0];
+                await vid.RenderCommand.ExecuteAsync(null); await Idle(); log.Add($"VIDEO 1 panel OPD, GIF 720p: {vid.LastRenderSeconds:F1} s; {vid.Message.Replace("\n", " | ")}");
+                vid.Format = vid.Formats[0]; vid.Panel1 = vid.PanelChoices[6]; vid.Turntable = true; vid.TurntableSeconds = 3; vid.Fps = 20; vid.OutputPath = Path.Combine(outDir, "video", "turntable.mp4");
+                await vid.RenderCommand.ExecuteAsync(null); await Idle(); log.Add($"VIDEO turntable 3 s at 20 fps (60 frames), MP4 720p: {vid.LastRenderSeconds:F1} s; {vid.Message.Replace("\n", " | ")}");
+                vid.Turntable = false; vid.Panel1 = vid.PanelChoices[0]; vid.Fps = 10; vid.Format = vid.Formats[3]; vid.OutputPath = Path.Combine(outDir, "video", "png_frames");
+                await vid.RenderCommand.ExecuteAsync(null); await Idle(); log.Add($"VIDEO PNG sequence 720p: {vid.LastRenderSeconds:F1} s; {vid.Message.Replace("\n", " | ")}; files {(Directory.Exists(vid.LastOutputPath) ? Directory.GetFiles(vid.LastOutputPath, "*.png").Length : 0)}");
+                log.Add($"MEM 1.1.0 block: peak working set of the process {peak()} MB (before the video block {m0} MB)");
+                vm.SelectedTab = 0; await Idle(); off.SelectedFile = off.Files.Last(); await off.ShowTask; await Idle();
+            }
             vm.Offline.Kind = DisplayKind.Intensity; await Idle(); Shot("03_offline_intensity");
             vm.Offline.Kind = DisplayKind.Phase; await Idle(); Shot("03b_offline_phase");
             vm.Offline.Kind = DisplayKind.OPD;
@@ -214,10 +247,10 @@ static class SelfTest
             vm.Surface3D.Wireframe = false; vm.Surface3D.Resolution = Qwlsi.Core.MeshResolution.N256; vm.Surface3D.Software = true; await Task.Delay(4000); await Idle(); ShotScreen("15_3d_software_warp_256"); log.Add(Mem("3D software WARP"));
             log.Add("3D software: " + vm.Surface3D.Info.Replace("\n", " | ") + " | software=" + win.View3D.IsSoftware);
             vm.Surface3D.Software = false; vm.Surface3D.Resolution = Qwlsi.Core.MeshResolution.N512; await Task.Delay(1500);
-            vm.SelectedTab = 3; await Idle();
+            vm.SelectedTab = 4; await Idle();
             if (flat != "") { vm.CalibrationVm.FlatFiles.Add(flat); await vm.CalibrationVm.CalibrateCommand.ExecuteAsync(null); await Idle(); }
             vm.CalibrationVm.AutoFindCommand.Execute(null); await Idle(); Shot("06_calibration");
-            vm.SelectedTab = 4; await Idle(); Shot("07_settings");
+            vm.SelectedTab = 5; await Idle(); Shot("07_settings");
             {   // About / diagnostics window
                 var about = new AboutWindow(vm) { Owner = win, Width = 1000, Height = 760 }; about.Show(); await Task.Delay(1200); await Idle();
                 File.WriteAllText(Path.Combine(outDir, "about_diagnostics.txt"), about.ReportText);
@@ -227,7 +260,7 @@ static class SelfTest
             {   // crash reporter: synthetic exception through the real code path
                 var crashPath = CrashReporter.Write(new InvalidOperationException("synthetic self-test exception"), "self-test", vm); log.Add("crash report written: " + crashPath + " (" + (crashPath != null && File.Exists(crashPath) ? new FileInfo(crashPath).Length + " bytes" : "MISSING") + ")");
             }
-            vm.SelectedTab = 5; await Idle(); Shot("08_help");
+            vm.SelectedTab = 6; await Idle(); Shot("08_help");
             log.Add("peak memory last frame: " + vm.Offline.LastPeakMb.ToString("F0") + " MB");
             { var pk = System.Diagnostics.Process.GetCurrentProcess(); pk.Refresh(); log.Add($"MEM PEAK of the whole app session: working set {pk.PeakWorkingSet64 / 1048576} MB, pagefile/private {pk.PeakPagedMemorySize64 / 1048576} MB"); log.Add("cache folder at end: " + vm.Offline.Store.Disk.Dir); }
             var pr = System.Diagnostics.Process.GetCurrentProcess(); pr.Refresh(); string M(long b) => (b / 1048576).ToString();

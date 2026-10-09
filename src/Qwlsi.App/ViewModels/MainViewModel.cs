@@ -15,6 +15,8 @@ public partial class MainViewModel : ObservableObject
     public SettingsViewModel SettingsVm { get; }
     public ZernikeViewModel ZernikeVm { get; }
     public Surface3DViewModel Surface3D { get; }
+    public ZernikeAllViewModel ZernikeAll { get; }
+    public VideoViewModel Video { get; }
 
     [ObservableProperty] Calibration? current;
     [ObservableProperty] string? currentPath;
@@ -29,7 +31,7 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(AppSettings? settings = null)
     {
         Settings = settings ?? AppSettings.Load();
-        Offline = new OfflineViewModel(this); CalibrationVm = new CalibrationViewModel(this); SettingsVm = new SettingsViewModel(this); ZernikeVm = new ZernikeViewModel(this); Surface3D = new Surface3DViewModel(this);
+        Offline = new OfflineViewModel(this); CalibrationVm = new CalibrationViewModel(this); SettingsVm = new SettingsViewModel(this); ZernikeVm = new ZernikeViewModel(this); Surface3D = new Surface3DViewModel(this); ZernikeAll = new ZernikeAllViewModel(this); Video = new VideoViewModel(this);
         AutoFindCalibration(null, silent: true); UpdateCalibrationText();
         timer.Tick += (_, _) => { var p = Process.GetCurrentProcess(); MemoryText = $"Memory: {p.WorkingSet64 / 1048576} MB working set / {p.PrivateMemorySize64 / 1048576} MB private" + (Offline.LastPeakMb > 0 ? $"  (peak during last frame: {Offline.LastPeakMb:F0} MB)" : ""); };
         timer.Start();

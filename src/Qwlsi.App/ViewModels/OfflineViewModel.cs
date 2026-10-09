@@ -173,7 +173,7 @@ public partial class OfflineViewModel : ObservableObject
         showCts?.Cancel(); await recomputeTask;      // a recompute for the viewer must not run beside the batch (memory)
         if (main.IsBusy) return;
         if (WithReference && (string.IsNullOrEmpty(ReferencePath) || !File.Exists(ReferencePath))) { main.StatusMessage = "With-reference mode: choose a reference frame."; return; }
-        if (!WithReference && main.Current == null) { main.AutoFindCalibration(CurrentImageFolder, true); if (main.Current == null) { main.StatusMessage = "No calibration loaded: use the Calibration tab (browse / auto-find / make from a flat frame)."; main.SelectedTab = 3; return; } }
+        if (!WithReference && main.Current == null) { main.AutoFindCalibration(CurrentImageFolder, true); if (main.Current == null) { main.StatusMessage = "No calibration loaded: use the Calibration tab (browse / auto-find / make from a flat frame)."; main.SelectedTab = 4; return; } }
         main.IsBusy = true; IsRunning = true; CanCancel = true; cts = new CancellationTokenSource(); var ct = cts.Token;
         foreach (var it in items) { it.Status = "queued"; it.Power = it.Rms = it.Seconds = ""; }
         summary.Clear(); BatchNote = ""; main.Settings.Save();

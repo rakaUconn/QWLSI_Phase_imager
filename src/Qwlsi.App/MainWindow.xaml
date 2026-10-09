@@ -134,6 +134,8 @@
 
             <!-- ============================================================ ZERNIKE -->
             <TabItem Header="Zernike" FontSize="14">
+              <TabControl x:Name="ZernikeSubTabs" FontSize="13" BorderThickness="0" Padding="0">
+                <TabItem Header="Single frame">
                 <Grid Margin="8" DataContext="{Binding ZernikeVm}">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="400"/><ColumnDefinition Width="*"/><ColumnDefinition Width="470"/></Grid.ColumnDefinitions>
                     <DockPanel Grid.Column="0" Margin="0,0,10,0">
@@ -222,6 +224,69 @@
                         </GroupBox>
                     </Grid>
                 </Grid>
+                </TabItem>
+
+                <!-- ====== all frames ====== -->
+                <TabItem Header="All frames">
+                <Grid Margin="8" DataContext="{Binding ZernikeAll}">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*" MinHeight="150"/><RowDefinition Height="250"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <WrapPanel Grid.Row="0" Margin="0,0,0,4">
+                        <Button Content="Apply selected removal to all frames" Command="{Binding ApplyAllCommand}" FontWeight="SemiBold" Background="#DCE9F8" ToolTip="removes the terms ticked on the 'Single frame' page from every processed frame and fills the table"/>
+                        <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+                        <Button Content="Export table CSV…" Command="{Binding ExportCsvCommand}"/>
+                        <Button Content="Export all filtered maps" Command="{Binding ExportAllFilteredCommand}" ToolTip="writes the filtered OPD of every frame with the matrix / format options below, plus zernike_table.csv"/>
+                        <Button Content="Open folder" Command="{Binding OpenExportFolderCommand}"/>
+                        <TextBlock Text="  Pupil:" Style="{StaticResource Label}" Margin="12,0,6,0"/>
+                        <RadioButton Content="per-frame circle (default)" IsChecked="{Binding CommonCircle, Converter={StaticResource InvBool}}" GroupName="allpupil" Margin="0,0,12,0" VerticalAlignment="Center" ToolTip="each frame's own mask-fitted circle"/>
+                        <RadioButton Content="common circle (intersection of all masks)" IsChecked="{Binding CommonCircle}" GroupName="allpupil" VerticalAlignment="Center" ToolTip="one circle fitted to the logical AND of all masks, used for every frame (also by the Video tab's filtered panels)"/>
+                    </WrapPanel>
+                    <WrapPanel Grid.Row="1" Margin="0,0,0,6">
+                        <TextBlock Text="Export:" Style="{StaticResource Label}"/>
+                        <CheckBox Content="matrix .txt/.csv" IsChecked="{Binding Offline.Export.MatrixTxt}" Margin="0,2,10,2"/><CheckBox Content="XYZ" IsChecked="{Binding Offline.Export.XyzTxt}" Margin="0,2,10,2"/>
+                        <CheckBox Content=".mat" IsChecked="{Binding Offline.Export.Mat}" Margin="0,2,10,2"/><CheckBox Content=".npy" IsChecked="{Binding Offline.Export.Npy}" Margin="0,2,10,2"/>
+                        <CheckBox Content="TIFF" IsChecked="{Binding Offline.Export.Tiff32}" Margin="0,2,10,2"/>
+                        <TextBlock Text="units" Style="{StaticResource Label}"/><ComboBox Width="62" ItemsSource="{Binding Offline.UnitChoices}" SelectedItem="{Binding Offline.ExportUnit}" Margin="0,0,10,0"/>
+                        <TextBlock Text="delimiter" Style="{StaticResource Label}"/><ComboBox Width="72" ItemsSource="{Binding Offline.Delimiters}" SelectedItem="{Binding Offline.Export.Matrix.Delim}" Margin="0,0,10,0"/>
+                        <CheckBox Content="# header" IsChecked="{Binding Offline.Export.Matrix.Header}" Margin="0,2,10,2"/>
+                        <TextBlock Text="folder" Style="{StaticResource Label}"/><TextBox Width="320" Text="{Binding Offline.ExportFolder}" ToolTip="default: Documents\QwlsiApp\Output"/>
+                    </WrapPanel>
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="5"/><ColumnDefinition Width="430"/></Grid.ColumnDefinitions>
+                        <DataGrid x:Name="AllGrid" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow, Mode=TwoWay}" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" CanUserSortColumns="True" CanUserAddRows="False"
+                                  FontSize="12" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#E4E4E4" BorderBrush="{StaticResource Border}" ToolTip="click a header to sort; click a row to show that frame's maps below (and in the other tabs)">
+                            <DataGrid.RowStyle><Style TargetType="DataGridRow"><Style.Triggers><DataTrigger Binding="{Binding IsSummary}" Value="True"><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Background" Value="#EEF1F6"/></DataTrigger></Style.Triggers></Style></DataGrid.RowStyle>
+                        </DataGrid>
+                        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"/>
+                        <Grid Grid.Column="2">
+                            <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="130"/></Grid.RowDefinitions>
+                            <Border BorderBrush="{StaticResource Border}" BorderThickness="1"><c:TrendPlot x:Name="AllTrend" Series="{Binding TrendSeries}" MarkerFrame="{Binding MarkerFrame}" YLabel="nm"/></Border>
+                            <ListBox Grid.Row="1" ItemsSource="{Binding TrendChoices}" FontSize="11" BorderBrush="{StaticResource Border}" Margin="0,4,0,0" ToolTip="tick the quantities of the trend plot">
+                                <ListBox.ItemTemplate><DataTemplate><CheckBox IsChecked="{Binding IsChecked}" Content="{Binding Name}" Margin="0,1"/></DataTemplate></ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Grid>
+                    <Grid Grid.Row="3" Margin="0,6,0,0">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <TextBlock Text="{Binding MapsCaption}" Style="{StaticResource Mono}" Margin="0,0,0,2" TextWrapping="Wrap"/>
+                        <UniformGrid Grid.Row="1" Rows="1">
+                            <DockPanel Margin="0,0,4,0"><TextBlock DockPanel.Dock="Top" Text="original" FontWeight="SemiBold" FontSize="12"/><c:MapView Spec="{Binding OriginalSpec}"/></DockPanel>
+                            <DockPanel Margin="0,0,4,0"><TextBlock DockPanel.Dock="Top" Text="removed Zernike surface" FontWeight="SemiBold" FontSize="12"/><c:MapView Spec="{Binding RemovedSpec}"/></DockPanel>
+                            <DockPanel><TextBlock DockPanel.Dock="Top" Text="filtered" FontWeight="SemiBold" FontSize="12"/><c:MapView Spec="{Binding FilteredSpec}"/></DockPanel>
+                        </UniformGrid>
+                    </Grid>
+                    <StackPanel Grid.Row="4" Margin="0,6,0,0">
+                        <Border Background="{StaticResource WarnBg}" BorderBrush="#E0B84A" BorderThickness="1" Padding="8,4" Margin="0,0,0,4">
+                            <Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsStale}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style>
+                            <TextBlock Text="The selection / orientation / pupil option changed after this table was built: press 'Apply selected removal to all frames' to update it." TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"/>
+                        </Border>
+                        <ProgressBar Height="12" Minimum="0" Maximum="1" Value="{Binding Progress}"/>
+                        <TextBlock Text="{Binding ProgressText}" FontSize="12" Foreground="#444"/>
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="12" Foreground="#2A6A2A"/>
+                        <TextBlock Text="{Binding CircleInfo}" TextWrapping="Wrap" FontSize="11" Foreground="#555"/>
+                    </StackPanel>
+                </Grid>
+                </TabItem>
+              </TabControl>
             </TabItem>
 
             <!-- ============================================================ 3D -->
@@ -271,6 +336,112 @@
                         <TextBlock Text="{Binding Info}" Style="{StaticResource Mono}" FontSize="11" Foreground="#555" TextWrapping="Wrap"/>
                     </StackPanel></ScrollViewer>
                     <c:Surface3DView x:Name="View3D" Grid.Column="1"/>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================================================ VIDEO -->
+            <TabItem Header="Video" FontSize="14">
+                <Grid Margin="8" DataContext="{Binding Video}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="400"/><ColumnDefinition Width="*"/><ColumnDefinition Width="340"/></Grid.ColumnDefinitions>
+                    <ScrollViewer Grid.Column="0" Margin="0,0,10,0" VerticalScrollBarVisibility="Auto"><StackPanel>
+                        <GroupBox Header="Frames (processed rows of the Offline list)">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Order" Style="{StaticResource Label}"/><ComboBox Width="150" ItemsSource="{Binding Orders}" SelectedItem="{Binding Order}"/>
+                                    <TextBlock Text="  range" Style="{StaticResource Label}"/><TextBox Width="42" Text="{Binding FirstFrame, UpdateSourceTrigger=PropertyChanged}" ToolTip="first frame (1-based)"/>
+                                    <TextBlock Text=" … " VerticalAlignment="Center"/><TextBox Width="42" Text="{Binding LastFrame, UpdateSourceTrigger=PropertyChanged}" ToolTip="last frame (0 = to the end)"/>
+                                    <Button Content="↻" Command="{Binding RefreshFramesCommand}" Padding="6,0" Margin="6,0,0,0" ToolTip="update the frame count"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding FramesText}" Foreground="#555" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="Panels (1 = full, 2 = side by side, 3 = first on top, 4 = 2 × 2)">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                <TextBlock Text="Panel 1" Style="{StaticResource Label}"/><ComboBox Grid.Column="1" ItemsSource="{Binding PanelChoices}" SelectedItem="{Binding Panel1}" Margin="0,0,0,3"/>
+                                <TextBlock Grid.Row="1" Text="Panel 2" Style="{StaticResource Label}"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding OptionalPanelChoices}" SelectedItem="{Binding Panel2}" Margin="0,0,0,3"/>
+                                <TextBlock Grid.Row="2" Text="Panel 3" Style="{StaticResource Label}"/><ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding OptionalPanelChoices}" SelectedItem="{Binding Panel3}" Margin="0,0,0,3"/>
+                                <TextBlock Grid.Row="3" Text="Panel 4" Style="{StaticResource Label}"/><ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding OptionalPanelChoices}" SelectedItem="{Binding Panel4}"/>
+                            </Grid>
+                        </GroupBox>
+                        <GroupBox Header="Colour">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                    <TextBlock Text="Colormap" Style="{StaticResource Label}"/><ComboBox Grid.Column="1" ItemsSource="{Binding Colormaps}" SelectedItem="{Binding Cmap}" Margin="0,0,0,3"/>
+                                    <TextBlock Grid.Row="1" Text="Range" Style="{StaticResource Label}"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding RangeModes}" SelectedItem="{Binding Range}" Margin="0,0,0,3"/>
+                                    <TextBlock Grid.Row="2" Text="Units" Style="{StaticResource Label}"/><ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding UnitChoices}" SelectedItem="{Binding Unit}"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0"><TextBlock Text="percentiles (clipped mode)" Style="{StaticResource Label}"/><TextBox Width="42" Text="{Binding PctLo, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text=" … " VerticalAlignment="Center"/><TextBox Width="42" Text="{Binding PctHi, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text=" %" VerticalAlignment="Center"/></StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><CheckBox Content="manual fixed range (display unit)" IsChecked="{Binding ManualRange}" VerticalAlignment="Center"/><TextBox Width="55" Margin="6,0,0,0" Text="{Binding ManualMin, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text=" … " VerticalAlignment="Center"/><TextBox Width="55" Text="{Binding ManualMax, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
+                                <CheckBox Content="colourbar" IsChecked="{Binding Colorbar}" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="Overlays">
+                            <StackPanel>
+                                <CheckBox Content="frame name and number" IsChecked="{Binding OverlayName}"/>
+                                <CheckBox Content="power, rms and PV" IsChecked="{Binding OverlayStats}"/>
+                                <CheckBox Content="strip plot of a value against the frame number (moving marker)" IsChecked="{Binding StripPlot}"/>
+                                <StackPanel Orientation="Horizontal" Margin="18,2,0,0"><ComboBox Width="150" ItemsSource="{Binding StripValues}" SelectedItem="{Binding StripValue}"/><ComboBox Width="170" Margin="6,0,0,0" ItemsSource="{Binding StripTerms}" SelectedItem="{Binding StripTerm}" ToolTip="Zernike term (when 'Zernike term' is chosen)"/></StackPanel>
+                            </StackPanel>
+                        </GroupBox>
+                        <GroupBox Header="3D surface and turntable">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                    <TextBlock Text="Mesh" Style="{StaticResource Label}"/><ComboBox Grid.Column="1" ItemsSource="{Binding Meshes}" SelectedItem="{Binding Mesh}" Margin="0,0,0,3"/>
+                                    <TextBlock Grid.Row="1" Text="Elevation" Style="{StaticResource Label}"/><Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="90" Value="{Binding Elevation}" ToolTip="fixed during a turntable"/>
+                                    <TextBlock Grid.Row="2" Text="Azimuth" Style="{StaticResource Label}"/><Slider Grid.Row="2" Grid.Column="1" Minimum="-180" Maximum="180" Value="{Binding Azimuth}" ToolTip="start azimuth of a turntable"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><CheckBox Content="auto height exaggeration" IsChecked="{Binding ExaggerationAuto}" VerticalAlignment="Center"/><TextBox Width="60" Margin="6,0,0,0" Text="{Binding Exaggeration, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding ExaggerationAuto, Converter={StaticResource InvBool}}"/></StackPanel>
+                                <CheckBox Content="axes (mm, nm)" IsChecked="{Binding Axes}"/>
+                                <CheckBox Content="3D shows the Zernike-filtered OPD" IsChecked="{Binding SurfaceFiltered}"/>
+                                <CheckBox Content="turntable: rotate ONE frame's 3D surface through 360°" IsChecked="{Binding Turntable}" Margin="0,8,0,0" FontWeight="SemiBold"/>
+                                <StackPanel Orientation="Horizontal" Margin="18,2,0,0"><TextBlock Text="over" Style="{StaticResource Label}"/><TextBox Width="45" Text="{Binding TurntableSeconds, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text=" s   frame no." Style="{StaticResource Label}" Margin="6,0,6,0"/><TextBox Width="45" Text="{Binding TurntableFrame, UpdateSourceTrigger=PropertyChanged}" ToolTip="position in the chosen frame range (1-based)"/></StackPanel>
+                                <TextBlock Text="needs a '3D surface' panel; the turntable replaces the frame sequence" Foreground="#666" FontSize="11" Margin="18,2,0,0"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel></ScrollViewer>
+
+                    <DockPanel Grid.Column="1" Margin="0,0,10,0">
+                        <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                            <DockPanel><Button DockPanel.Dock="Right" Content="Preview" Command="{Binding PreviewCommand}" Margin="6,0,0,0"/><Slider Minimum="1" Maximum="{Binding PreviewMax}" Value="{Binding PreviewIndex}" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="frame (or turntable step) to preview"/></DockPanel>
+                            <TextBlock Text="{Binding PreviewInfo}" Style="{StaticResource Mono}" Foreground="#555"/>
+                        </StackPanel>
+                        <Border Background="#202020" BorderBrush="{StaticResource Border}" BorderThickness="1"><Image Source="{Binding PreviewImage}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/></Border>
+                    </DockPanel>
+
+                    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"><StackPanel>
+                        <GroupBox Header="Output">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                                    <TextBlock Text="Format" Style="{StaticResource Label}"/><ComboBox Grid.Column="1" ItemsSource="{Binding Formats}" SelectedItem="{Binding Format}" Margin="0,0,0,3"/>
+                                    <TextBlock Grid.Row="1" Text="Size" Style="{StaticResource Label}"/><ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Resolutions}" SelectedItem="{Binding Resolution}" Margin="0,0,0,3"/>
+                                    <TextBlock Grid.Row="2" Text="Frames / s" Style="{StaticResource Label}"/><DockPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,3"><TextBox DockPanel.Dock="Right" Width="38" Margin="6,0,0,0" Text="{Binding Fps, UpdateSourceTrigger=PropertyChanged}"/><Slider Minimum="1" Maximum="60" Value="{Binding Fps}" IsSnapToTickEnabled="True" TickFrequency="1"/></DockPanel>
+                                    <TextBlock Grid.Row="3" Text="Blend" Style="{StaticResource Label}"/><StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal"><TextBox Width="38" Text="{Binding BlendSteps, UpdateSourceTrigger=PropertyChanged}" ToolTip="0 = no blending between frames (default); n = n cross-faded frames between consecutive frames"/><TextBlock Text="  cross-fade frames between frames (0 = none)" Foreground="#666" FontSize="11" VerticalAlignment="Center"/></StackPanel>
+                                </Grid>
+                                <TextBlock Text="File (empty = output folder, automatic name)" Margin="0,6,0,2" FontSize="12"/>
+                                <DockPanel><Button DockPanel.Dock="Right" Content="…" Padding="6,0" Command="{Binding BrowseOutputCommand}" Margin="4,0,0,0"/><TextBox Text="{Binding OutputPath, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
+                                <TextBlock Text="{Binding Estimate}" Margin="0,6,0,0" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="#2F6DB5"/>
+                            </StackPanel>
+                        </GroupBox>
+                        <WrapPanel Margin="0,0,0,6">
+                            <Button Content="Render video" Command="{Binding RenderCommand}" FontWeight="SemiBold" Background="#DCE9F8"/>
+                            <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+                            <Button Content="Show file" Command="{Binding OpenOutputCommand}"/>
+                        </WrapPanel>
+                        <ProgressBar Height="14" Minimum="0" Maximum="1" Value="{Binding Progress}"/>
+                        <TextBlock Text="{Binding ProgressText}" TextWrapping="Wrap" FontSize="12" Foreground="#444" Margin="0,3,0,0"/>
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="12" Foreground="#2A6A2A" Margin="0,6,0,0"/>
+                        <GroupBox Header="ffmpeg" Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="{Binding FfmpegStatus}" TextWrapping="Wrap" FontSize="11" Foreground="#555"/>
+                                <Button Content="Use another ffmpeg.exe…" Command="{Binding BrowseFfmpegCommand}" Margin="0,6,0,0" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel></ScrollViewer>
                 </Grid>
             </TabItem>
 
@@ -358,6 +529,10 @@
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="Lens power from the Zernike defocus: + = concave (bowl). Piston and tilt are removed (tilt is not absolute in a single frame). The result grid is 1504 × 1504 at 3 px = 8.22 µm pitch. Outside the pupil the OPD is NaN (or 0 if chosen for the export)."/>
                     <TextBlock Text="Exports" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="Matrix .txt/.csv: one image row per line, loadable with MATLAB readmatrix / numpy loadtxt. Defaults: nm, tab, 3 decimals, NaN outside, no header. XYZ list: x_mm, y_mm, OPD (origin = pupil centroid). .mat (v5), .npy (OPD in metres, complex64 field) and float32 TIFF are also available. A sidecar *_export.json records every parameter used."/>
+                    <TextBlock Text="Video tab" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="Renders the processed frames of the Offline list into an MP4 (H.264, bundled LGPL ffmpeg), GIF, AVI (MJPEG) or PNG sequence: up to four panels (OPD, filtered OPD, removed Zernike surface, intensity, wrapped phase, raw frame, 3D surface), a colour range fixed across all frames by default, overlays, a strip plot and a 3D turntable. Use Preview to see a frame exactly as it will appear. Without ffmpeg, MP4 is saved as AVI. See the user guide, section 8."/>
+                    <TextBlock Text="Zernike, all frames" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" Text="Zernike tab, page 'All frames': the selected removal applied to every processed frame, one table row per frame (terms in nm, power, astigmatism magnitude and axis, rms/PV before and after), sortable, with mean / std, CSV export, trend plot, per-frame maps and 'Export all filtered maps'. The pupil can be each frame's own circle (default) or one common circle fitted to the intersection of all masks."/>
                 </StackPanel></ScrollViewer>
             </TabItem>
         </TabControl>

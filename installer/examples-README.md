@@ -1,4 +1,4 @@
-# QWLSI single-frame wavefront 1.0.1 — examples
+# QWLSI single-frame wavefront 1.1.0 — examples
 
 Use these files to check that the installation works and reproduces the validated results.
 

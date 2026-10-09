@@ -52,6 +52,8 @@ public sealed class AppSettings
     public bool ExportFilteredOpd { get; set; }
     /// <summary>Size limit of the temporary result cache on disk [MB] (see <see cref="CacheDir"/>).</summary>
     public int CacheLimitMb { get; set; } = 2048;
+    /// <summary>Optional path of an ffmpeg.exe chosen on the Video tab (default: the bundled one in the program folderfmpeg).</summary>
+    public string? FfmpegPath { get; set; }
 
     public static string Dir => Environment.GetEnvironmentVariable("QWLSI_APPDATA") is { Length: > 0 } d ? d : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "QwlsiApp");
     /// <summary>Temporary result cache root: %LOCALAPPDATA%\QwlsiApp\cache (inside QWLSI_APPDATA when that is set, e.g. by the self-test).</summary>
