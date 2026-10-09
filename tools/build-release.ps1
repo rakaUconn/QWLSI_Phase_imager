@@ -53,7 +53,8 @@ if (-not $SkipInstaller) {
 Write-Host '== examples zip'
 $ex = Join-Path $stage 'examples'; New-Item -ItemType Directory -Force "$ex\frames", "$ex\golden" | Out-Null
 Copy-Item (Join-Path $root 'installer\examples-README.md') "$ex\README.md"
-Copy-Item (Join-Path $data 'recon_single_frame\calibration.json') $ex
+# pristine Python calibration (recon_single_frame\calibration.json was overwritten by an app Save on 2026-10-07)
+Copy-Item (Join-Path $root 'src\Qwlsi.Tests\data\calibration_python_original.json') (Join-Path $ex 'calibration.json')
 Copy-Item (Join-Path $data 'recon_single_frame\results\ref_OPD_m.npy') $ex
 Copy-Item (Join-Path $data 'ref.tif') $ex
 foreach ($n in 'concave_1_img', 'concave_2_img', 'concave_1-5_img', 'convex_1_img', 'convex_2_img', 'convex_1-5_img') {
