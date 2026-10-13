@@ -53,6 +53,18 @@ public class ResultCacheTests
         Assert.Equal(0, computed);
     }
 
+    /// <summary>REGRESSION (1.1.0 bug): a frame whose statistics contained NaN/Infinity made ResultDiskCache.Put throw (System.Text.Json refuses non-finite doubles).</summary>
+    [Fact]
+    public void Non_finite_statistics_can_be_cached_and_read_back()
+    {
+        string root = TempRoot(); using var cache = new ResultDiskCache(root, 1L << 30);
+        using var s = new ReconSession { Par = fx.Par, Calibration = fx.Calib }; var oc = s.ProcessFile(P("convex_1_img"));
+        oc.Result.BlackLevel = double.PositiveInfinity; oc.Result.Solve.ResidualRad[0] = double.NaN; oc.Seconds = double.NegativeInfinity;
+        cache.Put("k", oc);
+        var back = cache.TryGet("k"); Assert.NotNull(back);
+        Assert.True(double.IsPositiveInfinity(back!.Result.BlackLevel)); Assert.True(double.IsNaN(back.Result.Solve.ResidualRad[0])); Assert.True(double.IsNegativeInfinity(back.Seconds));
+    }
+
     [Fact]
     public async Task Missing_result_is_recomputed_automatically_with_progress_and_agrees()
     {

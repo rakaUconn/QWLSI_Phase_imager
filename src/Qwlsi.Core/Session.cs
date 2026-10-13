@@ -251,7 +251,7 @@ public static class ResultExporter
             },
             export_options = o, files = files.Select(Path.GetFileName).ToArray(),
         };
-        var sf = bp + "_export.json"; File.WriteAllText(sf, JsonSerializer.Serialize(side, new JsonSerializerOptions { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } })); files.Add(sf);
+        var sf = bp + "_export.json"; File.WriteAllText(sf, JsonSerializer.Serialize(side, new JsonSerializerOptions { WriteIndented = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } })); files.Add(sf);
         return files;
     }
 

@@ -18,6 +18,8 @@ public sealed class ResultDiskCache : IDisposable
     readonly object gate = new();
     readonly Dictionary<string, (long size, long used)> entries = new(); long tick, total;
     const string Magic = "QRC1";
+    /// <summary>NaN / Infinity (e.g. a degenerate frame's statistics) must not make caching fail.</summary>
+    static readonly JsonSerializerOptions JsonOpt = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
 
     public ResultDiskCache(string root, long maxBytes)
     {
@@ -62,7 +64,7 @@ public sealed class ResultDiskCache : IDisposable
             SystemWavefrontFile = oc.SystemWavefrontFile, ReferenceFile = oc.ReferenceFile, Width = oc.Width, Warnings = oc.Warnings, M = r.M, Stats = r.Stats, Solve = r.Solve,
             BlackLevel = r.BlackLevel, TimingsMs = r.TimingsMs,
         };
-        var json = JsonSerializer.SerializeToUtf8Bytes(meta);
+        var json = JsonSerializer.SerializeToUtf8Bytes(meta, JsonOpt);
         using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
         {
             fs.Write(Encoding.ASCII.GetBytes(Magic)); fs.Write(BitConverter.GetBytes(json.Length)); fs.Write(json);
@@ -91,7 +93,7 @@ public sealed class ResultDiskCache : IDisposable
             using var fs = new FileStream(PathOf(key), FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
             var head = new byte[8]; fs.ReadExactly(head); if (Encoding.ASCII.GetString(head, 0, 4) != Magic) throw new InvalidDataException("bad cache file");
             var json = new byte[BitConverter.ToInt32(head, 4)]; fs.ReadExactly(json);
-            var meta = JsonSerializer.Deserialize<Meta>(json) ?? throw new InvalidDataException("bad cache metadata");
+            var meta = JsonSerializer.Deserialize<Meta>(json, JsonOpt) ?? throw new InvalidDataException("bad cache metadata");
             int n = meta.M * meta.M; var res = new ReconResult { M = meta.M, Opd = new float[n], Intensity = new float[n], Mask = new byte[n], Stats = meta.Stats, Solve = meta.Solve, BlackLevel = meta.BlackLevel, TimingsMs = meta.TimingsMs };
             fs.ReadExactly(MemoryMarshal.AsBytes(res.Opd.AsSpan())); fs.ReadExactly(MemoryMarshal.AsBytes(res.Intensity.AsSpan())); fs.ReadExactly(res.Mask);
             lock (gate) { if (entries.TryGetValue(key, out var e)) entries[key] = (e.size, ++tick); }
@@ -117,7 +119,7 @@ public sealed class ResultDiskCache : IDisposable
             using var fs = new FileStream(PathOf(key), FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
             var head = new byte[8]; fs.ReadExactly(head); if (Encoding.ASCII.GetString(head, 0, 4) != Magic) throw new InvalidDataException("bad cache file");
             var json = new byte[BitConverter.ToInt32(head, 4)]; fs.ReadExactly(json);
-            var meta = JsonSerializer.Deserialize<Meta>(json) ?? throw new InvalidDataException("bad cache metadata"); long n = (long)meta.M * meta.M, off = 8 + json.Length;
+            var meta = JsonSerializer.Deserialize<Meta>(json, JsonOpt) ?? throw new InvalidDataException("bad cache metadata"); long n = (long)meta.M * meta.M, off = 8 + json.Length;
             if (fs.Length != off + 9 * n) throw new InvalidDataException("truncated cache file");
             fs.Seek(off + 8 * n, SeekOrigin.Begin); var mask = new byte[n]; fs.ReadExactly(mask);
             lock (gate) { if (entries.TryGetValue(key, out var e)) entries[key] = (e.size, ++tick); }
