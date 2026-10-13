@@ -1,5 +1,11 @@
 # QWLSI single-frame wavefront — release notes
 
+## 1.1.1 (2026-10-13) — bug-fix release
+
+* **Fixed: "processing failed ... .NET number values such as positive and negative infinity cannot be written as valid JSON".** When a frame's statistics contained NaN or Infinity, writing the result to the viewer's disk cache threw and the whole frame was reported as failed. Non-finite values are now stored and read back correctly; the same protection was added to the `_export.json` sidecar. A frame that yields such values should still be checked (mask, reference match).
+* Test added: non-finite statistics round-trip through the disk cache.
+* No change to the reconstruction algorithm or its results.
+
 ## 1.1.0 (2026-10-09) — Video tab and Zernike all-frames table
 
 * **New Video tab.** Renders the processed frames of the Offline list (ordered by name or time, with a frame range) into a video. Panels: OPD, filtered OPD (current Zernike selection), removed Zernike surface, transmittance / intensity, wrapped field phase, raw frame and a 3D surface, singly or in a grid of up to four. Colour: colormap, a fixed range across all frames (default), auto per frame or percentile clipped, in nm, µm or waves, with an optional colourbar. Overlays: frame name and number, power / rms / PV, an optional strip plot against the frame number with a moving marker. A turntable option rotates the 3D surface of one frame through 360° over N seconds at a fixed elevation. 1–60 fps; 720p, 1080p or native cropped to the pupil; a duration and file-size estimate; no blending between frames unless asked for. Output: **MP4 (H.264)** through a bundled **LGPL ffmpeg.exe** (licence added to THIRD-PARTY-NOTICES), **GIF**, **AVI (MJPEG)** and a **PNG sequence**; GIF / AVI / PNG are written natively, and an MP4 request falls back to AVI (with a message) when ffmpeg or an H.264 encoder is not available. Rendering runs in the background with progress and cancel and reads the results from the disk cache. The 3D panel uses a built-in software rasteriser (no GPU needed).

@@ -1,9 +1,9 @@
 <#
   Final release build: publish (self-contained win-x64) -> trim unused MKL files -> docs -> portable zip -> Inno Setup installer -> examples zip -> checksums.
-  Usage:  powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 [-Version 1.1.0] [-SkipInstaller]
+  Usage:  powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 [-Version 1.1.1] [-SkipInstaller]
   Output: dist\release\QwlsiApp-<v>-setup.exe, QwlsiApp-<v>-portable.zip, QwlsiApp-<v>-examples.zip, SHA256SUMS.txt
 #>
-param([string]$Version = "1.1.0", [switch]$SkipInstaller)
+param([string]$Version = "1.1.1", [switch]$SkipInstaller)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $data = Split-Path $root -Parent                       # ..\ holds the sample frames and the Python reference results
